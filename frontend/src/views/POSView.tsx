@@ -99,6 +99,7 @@ export default function POSView() {
   const [mostrarModalMezclador, setMostrarModalMezclador] = useState(false);
   const [productoPreparadoSeleccionado, setProductoPreparadoSeleccionado] = useState<any | null>(null);
   const [busquedaMezclador, setBusquedaMezclador] = useState('');
+  const [editingQty, setEditingQty] = useState<{ [id: string]: string }>({});
 
   useEffect(() => {
     if (mostrarModalIniciarRonda) {
@@ -1773,19 +1774,40 @@ export default function POSView() {
                   <div className="flex items-center space-x-2.5">
                     {item.categoria?.toLowerCase() !== 'descuentos' && (
                       <>
-                        <button
-                          onClick={() => updateCartQuantity(item.id, item.cantidad - 1)}
-                          className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                        >
-                          <Minus size={12} />
-                        </button>
-                        <span className="text-sm font-bold text-white w-6 text-center">{item.cantidad}</span>
-                        <button
-                          onClick={() => updateCartQuantity(item.id, item.cantidad + 1)}
-                          className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                        >
-                          <Plus size={12} />
-                        </button>
+                        <input
+                          type="text"
+                          value={editingQty[item.id] !== undefined ? editingQty[item.id] : (item.cantidad % 1 === 0 ? item.cantidad.toString() : Number(item.cantidad.toFixed(2)).toString())}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (/^[0-9./]*$/.test(val)) {
+                              setEditingQty(prev => ({ ...prev, [item.id]: val }));
+                              
+                              let parsed = parseFloat(val);
+                              if (val.includes('/')) {
+                                const parts = val.split('/');
+                                if (parts.length === 2) {
+                                  const num = parseFloat(parts[0]);
+                                  const den = parseFloat(parts[1]);
+                                  if (!isNaN(num) && !isNaN(den) && den !== 0) {
+                                    parsed = num / den;
+                                  }
+                                }
+                              }
+                              
+                              if (!isNaN(parsed) && parsed > 0) {
+                                updateCartQuantity(item.id, parsed);
+                              }
+                            }
+                          }}
+                          onBlur={() => {
+                            setEditingQty(prev => {
+                              const copy = { ...prev };
+                              delete copy[item.id];
+                              return copy;
+                            });
+                          }}
+                          className="w-16 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white text-center py-1 font-bold focus:border-campestre-gold outline-none"
+                        />
                       </>
                     )}
                     <button

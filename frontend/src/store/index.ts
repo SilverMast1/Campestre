@@ -128,7 +128,7 @@ export const useStore = create<POSState>((set) => ({
 
   updateCartQuantity: (productoId, cantidad) => set((state) => ({
     cart: state.cart.map((item) =>
-      item.id === productoId ? { ...item, cantidad: Math.max(1, cantidad) } : item
+      item.id === productoId ? { ...item, cantidad: Math.max(0.01, cantidad) } : item
     ),
   })),
 
