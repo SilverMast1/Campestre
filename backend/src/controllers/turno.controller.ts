@@ -1,0 +1,450 @@
+import { Response } from 'express';
+import { Decimal } from 'decimal.js';
+import prisma from '../db';
+import { AuthenticatedRequest } from '../middlewares/auth.middleware';
+
+// 1. Abrir un nuevo turno de caja (Apertura)
+export async function abrirTurno(req: AuthenticatedRequest, res: Response) {
+  const { fondo_inicial } = req.body;
+  const usuarioId = req.user?.id;
+
+  if (fondo_inicial === undefined || !usuarioId) {
+    return res.status(400).json({ error: 'Fondo inicial y usuario administrador/vendedor requeridos' });
+  }
+
+  try {
+    // Verificar si ya existe un turno activo
+    const turnoPrevio = await prisma.turno.findFirst({
+      where: { activo: true },
+    });
+
+    if (turnoPrevio) {
+      return res.status(400).json({ error: 'Ya existe un turno activo en el sistema. Debe cerrarlo primero.' });
+    }
+
+    const fondoDec = new Decimal(fondo_inicial);
+    if (fondoDec.lessThan(0)) {
+      return res.status(400).json({ error: 'El fondo inicial no puede ser menor a cero' });
+    }
+
+    const nuevoTurno = await prisma.turno.create({
+      data: {
+        usuario_id: usuarioId,
+        fondo_inicial: fondoDec,
+        activo: true,
+      },
+    });
+
+    return res.status(201).json({
+      message: 'Turno abierto exitosamente',
+      turno: {
+        id: nuevoTurno.id,
+        fondo_inicial: Number(nuevoTurno.fondo_inicial),
+        abierto_at: nuevoTurno.abierto_at,
+        activo: nuevoTurno.activo,
+      }
+    });
+  } catch (error) {
+    console.error('Error al abrir turno:', error);
+    return res.status(500).json({ error: 'Error al iniciar turno de caja' });
+  }
+}
+
+// 2. Obtener turno activo y su historial de ventas actual
+export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Response) {
+  try {
+    const turno = await prisma.turno.findFirst({
+      where: { activo: true },
+      include: {
+        cuentas: {
+          where: { estado: 'PAGADA' },
+          include: {
+            usuario: { select: { nombre: true } },
+            detalleCuentas: { include: { producto: true } },
+            divisionesCuentas: { include: { cliente: true } },
+          },
+        },
+        retiros: true,
+      },
+    });
+
+    if (!turno) {
+      return res.json({ activo: false });
+    }
+
+    // Calcular balances financieros acumulados en el turno activo
+    let efectivo = new Decimal(0);
+    let tarjeta = new Decimal(0);
+    let cargos = new Decimal(0);
+    const ventas: any[] = [];
+
+    turno.cuentas.forEach(cuenta => {
+      const items = cuenta.detalleCuentas.map(det => `${Number(det.cantidad)}x ${det.producto.nombre}`);
+      const pagos: any[] = [];
+
+      if (cuenta.divisionesCuentas.length > 0) {
+        // Pago Split (con socios)
+        cuenta.divisionesCuentas.forEach(div => {
+          const montoDec = new Decimal(div.monto_proporcional);
+          const metodo = div.metodo_pago;
+
+          if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+          else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+          else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+
+          pagos.push({
+            cliente_id: div.cliente_id,
+            nombre: div.cliente.nombre,
+            monto: Number(montoDec),
+            metodo: div.metodo_pago,
+          });
+        });
+      } else if (cuenta.metodo_pago) {
+        // Pago Directo (sin socios)
+        const montoDec = new Decimal(cuenta.total);
+        const metodo = cuenta.metodo_pago;
+
+        if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+        else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+        else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+
+        pagos.push({
+          cliente_id: null,
+          nombre: 'Pago directo',
+          monto: Number(montoDec),
+          metodo: cuenta.metodo_pago,
+        });
+      }
+
+      ventas.push({
+        id: Number(cuenta.id),
+        referencia: cuenta.nombre_referencia || '—',
+        fecha: cuenta.closed_at,
+        area: cuenta.area_id === 1 ? 'Bar' : cuenta.area_id === 2 ? 'Snack' : 'Palapa',
+        usuario_id: cuenta.usuario_id,
+        atendido_por: cuenta.usuario?.nombre || 'Desconocido',
+        total: Number(cuenta.total),
+        items,
+        pagos,
+      });
+    });
+
+    const totalRetiros = turno.retiros.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+
+    return res.json({
+      activo: true,
+      turno: {
+        id: turno.id,
+        fondo_inicial: Number(turno.fondo_inicial),
+        abierto_at: turno.abierto_at,
+      },
+      balances: {
+        efectivo: efectivo.toNumber(),
+        total_retiros: totalRetiros.toNumber(),
+        total_caja_efectivo: efectivo.plus(turno.fondo_inicial).minus(totalRetiros).toNumber(), // Caja total con el fondo inicial menos retiros
+        tarjeta: tarjeta.toNumber(),
+        cargo_socio: cargos.toNumber(),
+      },
+      ventas,
+      retiros: turno.retiros.map(r => ({
+        id: r.id,
+        monto: Number(r.monto),
+        motivo: r.motivo,
+        fecha: r.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error al obtener turno activo:', error);
+    return res.status(500).json({ error: 'Error al consultar estado de caja' });
+  }
+}
+
+// 3. Cerrar caja y terminar turno (Arqueo y Cierre)
+export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
+  try {
+    const turnoActivo = await prisma.turno.findFirst({
+      where: { activo: true },
+    });
+
+    if (!turnoActivo) {
+      return res.status(400).json({ error: 'No hay un turno activo para cerrar' });
+    }
+
+    // 1. Buscar todas las cuentas abiertas vinculadas al turno activo
+    const cuentasAbiertas = await prisma.cuenta.findMany({
+      where: {
+        turno_id: turnoActivo.id,
+        estado: 'ABIERTA',
+      },
+      include: {
+        cadi: {
+          include: {
+            asignaciones: {
+              where: { activa: true },
+              include: {
+                cliente: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // 2. Liquidar cada cuenta abierta a CARGO_SOCIO
+    for (const cuenta of cuentasAbiertas) {
+      const cadiId = cuenta.cadi_id;
+      const clientesRonda = cuenta.cadi ? cuenta.cadi.asignaciones.map(a => a.cliente) : [];
+
+      if (cadiId && clientesRonda.length > 0) {
+        const totalCuenta = new Decimal(cuenta.total);
+        const cantidadClientes = clientesRonda.length;
+        const porcentajeBase = new Decimal(100).div(cantidadClientes);
+        const montoBase = totalCuenta.div(cantidadClientes).toDP(2);
+
+        let totalDividido = montoBase.mul(cantidadClientes);
+        let residuo = totalCuenta.minus(totalDividido);
+
+        await prisma.$transaction(async (tx) => {
+          for (let i = 0; i < cantidadClientes; i++) {
+            const cliente = clientesRonda[i];
+            let montoCliente = new Decimal(montoBase);
+            if (i === cantidadClientes - 1 && !residuo.isZero()) {
+              montoCliente = montoCliente.plus(residuo);
+            }
+
+            const porcentaje = montoCliente.div(totalCuenta).mul(100);
+
+            await tx.divisionCuenta.create({
+              data: {
+                cuenta_id: cuenta.id,
+                cliente_id: cliente.id,
+                porcentaje_participacion: porcentaje,
+                monto_proporcional: montoCliente,
+                metodo_pago: 'CARGO_SOCIO',
+                estado_pago: 'PENDIENTE',
+                pagado_at: null,
+              },
+            });
+          }
+
+          await tx.cuenta.update({
+            where: { id: cuenta.id },
+            data: {
+              estado: 'PAGADA',
+              closed_at: new Date(),
+            },
+          });
+        });
+      } else {
+        // Intentar buscar si existe un socio activo con el mismo nombre que la referencia
+        let clienteEncontrado = null;
+        if (cuenta.nombre_referencia) {
+          clienteEncontrado = await prisma.cliente.findFirst({
+            where: {
+              nombre: { equals: cuenta.nombre_referencia.trim(), mode: 'insensitive' },
+              activo: true,
+            },
+          });
+        }
+
+        if (clienteEncontrado) {
+          await prisma.$transaction(async (tx) => {
+            await tx.divisionCuenta.create({
+              data: {
+                cuenta_id: cuenta.id,
+                cliente_id: clienteEncontrado.id,
+                porcentaje_participacion: new Decimal(100),
+                monto_proporcional: cuenta.total,
+                metodo_pago: 'CARGO_SOCIO',
+                estado_pago: 'PENDIENTE',
+                pagado_at: null,
+              },
+            });
+
+            await tx.cuenta.update({
+              where: { id: cuenta.id },
+              data: {
+                estado: 'PAGADA',
+                closed_at: new Date(),
+              },
+            });
+          });
+        } else {
+          await prisma.cuenta.update({
+            where: { id: cuenta.id },
+            data: {
+              estado: 'PAGADA',
+              closed_at: new Date(),
+              metodo_pago: 'CARGO_SOCIO',
+            },
+          });
+        }
+      }
+
+      if (cadiId) {
+        const otrasAsignaciones = await prisma.asignacionCadiCliente.findMany({
+          where: { cadi_id: cadiId, activa: true },
+        });
+        if (otrasAsignaciones.length === 0) {
+          await prisma.cadi.update({
+            where: { id: cadiId },
+            data: { estado: 'DISPONIBLE' },
+          });
+        }
+      }
+    }
+
+    // 3. Consultar el turno con todas las cuentas pagadas (incluyendo las auto-liquidadas)
+    const turno = await prisma.turno.findUnique({
+      where: { id: turnoActivo.id },
+      include: {
+        cuentas: {
+          where: { estado: 'PAGADA' },
+          include: {
+            divisionesCuentas: true,
+          },
+        },
+        retiros: true,
+      },
+    });
+
+    if (!turno) {
+      return res.status(404).json({ error: 'No se pudo consultar el turno activo' });
+    }
+
+    // Calcular balances finales del turno
+    let efectivo = new Decimal(0);
+    let tarjeta = new Decimal(0);
+    let cargos = new Decimal(0);
+
+    turno.cuentas.forEach(cuenta => {
+      if (cuenta.divisionesCuentas.length > 0) {
+        cuenta.divisionesCuentas.forEach(div => {
+          const montoDec = new Decimal(div.monto_proporcional);
+          const metodo = div.metodo_pago;
+          if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+          else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+          else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+        });
+      } else if (cuenta.metodo_pago) {
+        const montoDec = new Decimal(cuenta.total);
+        const metodo = cuenta.metodo_pago;
+        if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+        else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+        else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+      }
+    });
+
+    const fondoDec = new Decimal(turno.fondo_inicial);
+    const efectivoTotalCaja = efectivo.plus(fondoDec);
+    const totalRetiros = turno.retiros.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const finalEfectivoCaja = efectivoTotalCaja.minus(totalRetiros);
+
+    // Actualizar el turno para marcarlo inactivo y guardar los arqueos
+    const turnoCerrado = await prisma.turno.update({
+      where: { id: turno.id },
+      data: {
+        activo: false,
+        cerrado_at: new Date(),
+        caja_efectivo: finalEfectivoCaja, // Caja de efectivo real final (fondo + ventas - retiros)
+        caja_tarjeta: tarjeta,
+        caja_cargos: cargos,
+      },
+    });
+
+    return res.json({
+      message: 'Turno cerrado y arqueado exitosamente',
+      resumen: {
+        id: turnoCerrado.id,
+        fondo_inicial: Number(turnoCerrado.fondo_inicial),
+        efectivo_ventas: efectivo.toNumber(),
+        efectivo_total_entregar: efectivoTotalCaja.toNumber(),
+        tarjeta_ventas: tarjeta.toNumber(),
+        cargos_socios_adeudos: cargos.toNumber(),
+        abierto_at: turnoCerrado.abierto_at,
+        cerrado_at: turnoCerrado.cerrado_at,
+      }
+    });
+  } catch (error) {
+    console.error('Error al cerrar turno:', error);
+    return res.status(500).json({ error: 'Error al finalizar el turno de caja' });
+  }
+}
+
+// 4. Registrar un retiro de efectivo de la caja activa
+export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Response) {
+  const { monto, motivo } = req.body;
+
+  if (monto === undefined || isNaN(parseFloat(monto)) || parseFloat(monto) <= 0) {
+    return res.status(400).json({ error: 'Monto de retiro válido requerido' });
+  }
+
+  if (!motivo || motivo.trim() === '') {
+    return res.status(400).json({ error: 'Motivo del retiro requerido' });
+  }
+
+  try {
+    const turnoActivo = await prisma.turno.findFirst({
+      where: { activo: true },
+      include: {
+        cuentas: {
+          where: { estado: 'PAGADA' },
+          include: {
+            divisionesCuentas: true,
+          },
+        },
+        retiros: true,
+      },
+    });
+
+    if (!turnoActivo) {
+      return res.status(400).json({ error: 'No hay un turno activo abierto para registrar el retiro' });
+    }
+
+    const montoDec = new Decimal(monto);
+
+    // Validar que hay suficiente efectivo en caja
+    let efectivoVentas = new Decimal(0);
+    turnoActivo.cuentas.forEach(cuenta => {
+      if (cuenta.divisionesCuentas.length > 0) {
+        cuenta.divisionesCuentas.forEach(div => {
+          if (div.metodo_pago === 'EFECTIVO') {
+            efectivoVentas = efectivoVentas.plus(new Decimal(div.monto_proporcional));
+          }
+        });
+      } else if (cuenta.metodo_pago === 'EFECTIVO') {
+        efectivoVentas = efectivoVentas.plus(new Decimal(cuenta.total));
+      }
+    });
+
+    const totalRetirosPrevios = turnoActivo.retiros.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const efectivoDisponible = efectivoVentas.plus(turnoActivo.fondo_inicial).minus(totalRetirosPrevios);
+
+    if (montoDec.greaterThan(efectivoDisponible)) {
+      return res.status(400).json({ 
+        error: `Monto de retiro ($${montoDec.toNumber()}) excede el efectivo disponible en caja ($${efectivoDisponible.toNumber()})` 
+      });
+    }
+
+    const nuevoRetiro = await prisma.retiroCaja.create({
+      data: {
+        turno_id: turnoActivo.id,
+        monto: montoDec,
+        motivo: motivo.trim(),
+      },
+    });
+
+    return res.json({
+      message: 'Retiro de caja registrado correctamente',
+      retiro: {
+        id: nuevoRetiro.id,
+        monto: Number(nuevoRetiro.monto),
+        motivo: nuevoRetiro.motivo,
+        fecha: nuevoRetiro.created_at,
+      },
+    });
+  } catch (error) {
+    console.error('Error al registrar retiro de caja:', error);
+    return res.status(500).json({ error: 'Error al procesar el retiro de efectivo de caja' });
+  }
+}
