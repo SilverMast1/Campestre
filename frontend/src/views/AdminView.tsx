@@ -245,6 +245,14 @@ export default function AdminView() {
   const [sociosLista, setSociosLista] = useState<any[]>([]);
   const [busquedaSocio, setBusquedaSocio] = useState('');
 
+  // Modal editar socio
+  const [mostrarModalEditarSocio, setMostrarModalEditarSocio] = useState(false);
+  const [socioSeleccionadoEdit, setSocioSeleccionadoEdit] = useState<any>(null);
+  const [editSocioCodigo, setEditSocioCodigo] = useState('');
+  const [editSocioNombre, setEditSocioNombre] = useState('');
+  const [editSocioEmail, setEditSocioEmail] = useState('');
+  const [editSocioTelefono, setEditSocioTelefono] = useState('');
+
   // Reportes
   const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'usuarios' | 'cclourdes'>('gestion');
 
@@ -816,6 +824,45 @@ export default function AdminView() {
       setSuccess('Socio eliminado.');
       cargarSociosLista();
     } catch (err: any) { setError(err.message); }
+  };
+
+  const startEditSocio = (s: any) => {
+    setSocioSeleccionadoEdit(s);
+    setEditSocioCodigo(s.codigo_socio || '');
+    setEditSocioNombre(s.nombre);
+    setEditSocioEmail(s.email || '');
+    setEditSocioTelefono(s.telefono || '');
+    setMostrarModalEditarSocio(true);
+  };
+
+  const handleGuardarSocioEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!socioSeleccionadoEdit) return;
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`/api/socios/${socioSeleccionadoEdit.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          codigo_socio: editSocioCodigo,
+          nombre: editSocioNombre,
+          email: editSocioEmail || null,
+          telefono: editSocioTelefono || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar socio');
+      setSuccess(`Datos del socio actualizados correctamente.`);
+      setMostrarModalEditarSocio(false);
+      setSocioSeleccionadoEdit(null);
+      cargarSociosLista();
+      cargarSocios();
+    } catch (err: any) {
+      setError(err.message);
+    }
   };
 
   const handleResetearDatos = async () => {
@@ -1502,10 +1549,16 @@ export default function AdminView() {
                     <td className="px-4 py-3 text-slate-400">{s.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-400">{s.telefono || '—'}</td>
                     <td className="px-4 py-3 text-center">
-                      <button type="button" onClick={() => handleEliminarSocio(s.id)}
-                        className="flex items-center gap-1 mx-auto px-3 py-1.5 bg-red-500/10 hover:bg-red-500/25 text-red-400 rounded-lg text-[10px] font-bold border border-red-500/20 transition-colors">
-                        <Trash2 size={11} /> Eliminar
-                      </button>
+                      <div className="flex justify-center gap-2">
+                        <button type="button" onClick={() => startEditSocio(s)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/25 text-blue-400 rounded-lg text-[10px] font-bold border border-blue-500/20 transition-colors">
+                          Editar
+                        </button>
+                        <button type="button" onClick={() => handleEliminarSocio(s.id)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/25 text-red-400 rounded-lg text-[10px] font-bold border border-red-500/20 transition-colors">
+                          <Trash2 size={11} /> Eliminar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -2471,6 +2524,57 @@ export default function AdminView() {
                   ) : (
                     <span>Registrar Salida</span>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Socio */}
+      {mostrarModalEditarSocio && socioSeleccionadoEdit && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-4">Editar Socio</h3>
+            <form onSubmit={handleGuardarSocioEdit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">Código de Socio *</label>
+                <input required type="text"
+                  value={editSocioCodigo} onChange={e => setEditSocioCodigo(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">Nombre *</label>
+                <input required type="text"
+                  value={editSocioNombre} onChange={e => setEditSocioNombre(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">Email</label>
+                <input type="email"
+                  value={editSocioEmail} onChange={e => setEditSocioEmail(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">Teléfono</label>
+                <input type="text"
+                  value={editSocioTelefono} onChange={e => setEditSocioTelefono(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setMostrarModalEditarSocio(false)}
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button type="submit"
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition-colors shadow-lg shadow-blue-600/20"
+                >
+                  Guardar Cambios
                 </button>
               </div>
             </form>

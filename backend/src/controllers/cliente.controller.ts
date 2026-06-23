@@ -198,12 +198,34 @@ export async function eliminarSocio(req: AuthenticatedRequest, res: Response) {
     await prisma.$transaction(async (tx) => {
       await tx.asignacionCadiCliente.deleteMany({ where: { cliente_id: socioId } });
       await tx.divisionCuenta.deleteMany({ where: { cliente_id: socioId } });
+      await tx.cuenta.updateMany({ where: { cliente_id: socioId }, data: { cliente_id: null } });
       await tx.cliente.delete({ where: { id: socioId } });
     });
     return res.json({ message: 'Socio eliminado correctamente' });
   } catch (error: any) {
     console.error('Error al eliminar socio:', error);
     return res.status(500).json({ error: error.message || 'Error al eliminar el socio' });
+  }
+}
+
+// 6.5 Actualizar socio
+export async function actualizarSocio(req: AuthenticatedRequest, res: Response) {
+  const socioId = parseInt(req.params.socioId);
+  const { nombre, email, telefono, codigo_socio } = req.body;
+
+  if (isNaN(socioId)) {
+    return res.status(400).json({ error: 'ID de socio inválido' });
+  }
+
+  try {
+    const socioActualizado = await prisma.cliente.update({
+      where: { id: socioId },
+      data: { nombre, email, telefono, codigo_socio }
+    });
+    return res.json(socioActualizado);
+  } catch (error: any) {
+    console.error('Error al actualizar socio:', error);
+    return res.status(500).json({ error: error.message || 'Error al actualizar el socio' });
   }
 }
 

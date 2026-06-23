@@ -13,7 +13,7 @@ import { idempotency } from './middlewares/idempotency.middleware';
 import { loginInterno, loginCliente, crearClientePorStaff, buscarSociosPublico, listarUsuarios, crearUsuarioInterno, cambiarPasswordUsuario, toggleActivoUsuario, actualizarUsuarioInterno } from './controllers/auth.controller';
 import { listarProductosPorArea, abrirCuenta, guardarConsumos, previsualizarSplit, pagarYCerrarCuenta, ajustarStockArea, obtenerBalanceCaja, listarTodasLasCuentas, eliminarCuenta, resetearDatos, crearProducto, actualizarMetodoPagoCuenta, transferirStock, listarTodosLosProductos, registrarMermaStock, listarMermas, eliminarProducto } from './controllers/pos.controller';
 import { crearCadi, eliminarCadi, listarCadis, listarCadisActivos, asignarClientesACadi, liberarCadi } from './controllers/cadi.controller';
-import { obtenerPerfilSocio, listarConsumosSocio, regenerarTokenQR, buscarSocioPorQR, buscarSocios, eliminarSocio, listarSocios, listarCargosSocios, obtenerDetalleCargosSocio, liquidarCargosSocio, borrarCargosSocio, obtenerCuentaActivaSocio } from './controllers/cliente.controller';
+import { obtenerPerfilSocio, listarConsumosSocio, regenerarTokenQR, buscarSocioPorQR, buscarSocios, eliminarSocio, listarSocios, listarCargosSocios, obtenerDetalleCargosSocio, liquidarCargosSocio, borrarCargosSocio, obtenerCuentaActivaSocio, actualizarSocio } from './controllers/cliente.controller';
 import { abrirTurno, obtenerTurnoActivo, cerrarTurno, registrarRetiroCaja } from './controllers/turno.controller';
 import { obtenerReporteDiario, obtenerReporteCortes } from './controllers/reporte.controller';
 import { listarInsumos, crearInsumo, actualizarInsumo, eliminarInsumo, guardarReceta, obtenerReceta } from './controllers/insumo.controller';
@@ -129,6 +129,7 @@ app.post('/api/socio/qr-token', authenticateJWT, requireRoles(['CLIENTE']), rege
 app.post('/api/socio/buscar-qr', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), buscarSocioPorQR);
 app.get('/api/socio/buscar', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), buscarSocios);
 app.get('/api/socios', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), listarSocios);
+app.put('/api/socios/:socioId', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), actualizarSocio);
 app.delete('/api/socios/:socioId', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), eliminarSocio);
 
 // 4.5 Cargos a Socios (Deudas)
