@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store';
+import { TicketVenta } from '../components/TicketVenta';
 import { ShoppingCart, User, Users, Search, Plus, Minus, Trash2, CreditCard, Check, Sparkles, RefreshCw, Clock, X } from 'lucide-react';
 import { io } from 'socket.io-client';
 
@@ -1197,6 +1198,27 @@ export default function POSView() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 font-sans">
+      {/* ===== TICKET DE VENTA (OCULTO, SOLO PARA IMPRESIÓN) ===== */}
+      <div className="hidden print:block">
+        <TicketVenta 
+          cuenta={{
+            id: cuentaId || 'BORRADOR',
+            descuento: 0,
+            propina: 0,
+            metodo_pago: 'EFECTIVO',
+            detalleCuentas: cart.map(c => ({
+              id: Math.random(),
+              cantidad: c.cantidad,
+              precio_unitario: c.precio_venta,
+              producto: c
+            })),
+            mesa: nombreReferencia
+          }} 
+          areaNombre={areaId === 1 ? 'Bar' : areaId === 2 ? 'Snack' : 'Palapa'} 
+          cajeroNombre="Cajero POS"
+        />
+      </div>
+
       {/* Sección izquierda y central: Selección de área y catálogo de productos */}
       <div className="lg:col-span-2 space-y-6">
         {/* Banners de Estado del Turno */}

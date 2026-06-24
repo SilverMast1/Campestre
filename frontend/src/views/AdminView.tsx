@@ -254,7 +254,7 @@ export default function AdminView() {
   const [editSocioTelefono, setEditSocioTelefono] = useState('');
 
   // Reportes
-  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'usuarios' | 'cclourdes'>('gestion');
+  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'cortes_finales' | 'usuarios' | 'cclourdes'>('gestion');
 
   // Reporte Semanal CCLourdes
   const [fechaSemanalGastos, setFechaSemanalGastos] = useState(() => {
@@ -278,8 +278,9 @@ export default function AdminView() {
   });
   const [rangoReporte, setRangoReporte] = useState<string>('diario');
   const [reporteDiario, setReporteDiario] = useState<any>(null);
-  const [reporteCortes, setReporteCortes] = useState<any[]>([]);
   const [cargandoReporte, setCargandoReporte] = useState(false);
+  const [reporteCortes, setReporteCortes] = useState<any[]>([]);
+  const [fechaCortesFinales, setFechaCortesFinales] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Gestión de Usuarios Internos
   const [usuariosLista, setUsuariosLista] = useState<any[]>([]);
@@ -923,6 +924,24 @@ export default function AdminView() {
     );
   });
 
+  // Cálculos para Cortes Finales
+  const cortesDelDia = reporteCortes.filter(t => {
+    // Comparar la fecha de apertura o cierre (usamos cerrado_at preferentemente si está cerrado, si no abierto_at)
+    const fechaComparar = t.cerrado_at ? new Date(t.cerrado_at) : new Date(t.abierto_at);
+    // Convertir a string local YYYY-MM-DD
+    const tDate = new Date(fechaComparar.getTime() - (fechaComparar.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+    return tDate === fechaCortesFinales;
+  });
+
+  const totalesCortes = cortesDelDia.reduce((acc, curr) => {
+    return {
+      efectivo: acc.efectivo + curr.efectivo_ventas,
+      tarjeta: acc.tarjeta + curr.tarjeta_ventas,
+      cargos: acc.cargos + curr.cargos_socios,
+      netas: acc.netas + curr.ventas_netas
+    };
+  }, { efectivo: 0, tarjeta: 0, cargos: 0, netas: 0 });
+
   return (
     <div className="space-y-6 font-sans">
       {/* Mensajes globales */}
@@ -958,7 +977,24 @@ export default function AdminView() {
             }`}
           >
             <TrendingUp size={14} />
-            Reportes y Auditoría
+            Reportes de Ventas
+          </button>
+        )}
+        {esAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              setSeccionActiva('cortes_finales');
+              cargarReporteCortes();
+            }}
+            className={`flex items-center gap-2 px-5 py-2.5 text-xs font-semibold rounded-xl transition-all ${
+              seccionActiva === 'cortes_finales'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/10'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <DollarSign size={14} />
+            Cortes Finales
           </button>
         )}
         {esAdmin && (
@@ -1762,33 +1798,87 @@ export default function AdminView() {
               </div>
             )}
           </div>
+        </div>
+      ) : seccionActiva === 'cortes_finales' ? (
+        <div className="space-y-6">
+          {/* Panel Superior: Sumatoria Global de Cortes */}
+          <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-6">
+            <div className="flex flex-wrap justify-between items-center gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2 text-white">
+                  <DollarSign className="text-purple-400" size={20} />
+                  <span>Resumen Global de Cortes Finales</span>
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Sumatoria total de todos los turnos/cajas cerradas durante el día seleccionado.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="date"
+                  value={fechaCortesFinales}
+                  onChange={(e) => setFechaCortesFinales(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-purple-400 font-bold"
+                />
+                <button
+                  type="button"
+                  onClick={cargarReporteCortes}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5"
+                >
+                  <RefreshCw size={12} className={cargandoReporte ? 'animate-spin' : ''} />
+                  Recargar
+                </button>
+              </div>
+            </div>
+
+            {/* Tarjetas de Sumatoria de Cortes */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-5">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">💵 Total Efectivo Recabado</span>
+                <span className="text-2xl font-extrabold text-emerald-400 mt-1 block">
+                  ${totalesCortes.efectivo.toFixed(2)}
+                </span>
+                <span className="text-[9px] text-slate-500 block mt-1">Efectivo final entregado (sin fondo)</span>
+              </div>
+              <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-5">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">💳 Total Tarjetas</span>
+                <span className="text-2xl font-extrabold text-blue-400 mt-1 block">
+                  ${totalesCortes.tarjeta.toFixed(2)}
+                </span>
+                <span className="text-[9px] text-slate-500 block mt-1">Suma de pagos en terminal</span>
+              </div>
+              <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-5">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">⛳ Total Cargos a Socios</span>
+                <span className="text-2xl font-extrabold text-yellow-400 mt-1 block">
+                  ${totalesCortes.cargos.toFixed(2)}
+                </span>
+                <span className="text-[9px] text-slate-500 block mt-1">Suma de firmas de socios</span>
+              </div>
+              <div className="bg-slate-900/60 rounded-2xl border border-purple-500/20 p-5 bg-purple-500/5">
+                <span className="text-[10px] text-purple-400 uppercase tracking-wider font-bold block">📈 Ventas Netas del Día</span>
+                <span className="text-2xl font-extrabold text-purple-400 mt-1 block">
+                  ${totalesCortes.netas.toFixed(2)}
+                </span>
+                <span className="text-[9px] text-purple-400/60 block mt-1">Total final reportado por cajas</span>
+              </div>
+            </div>
+          </div>
 
           {/* Historial de Cortes de Caja */}
           <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-4">
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2 text-white">
-                  <DollarSign className="text-campestre-gold" size={20} />
-                  <span>Historial de Cortes de Caja (Turnos)</span>
+                  <DollarSign className="text-slate-400" size={18} />
+                  <span>Desglose de Turnos (Cortes)</span>
                 </h3>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Listado histórico de turnos con arqueos registrados de efectivo, tarjetas, cargos a socios y ventas netas.
-                </p>
               </div>
-              <button
-                type="button"
-                onClick={cargarReporteCortes}
-                className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors"
-                title="Recargar historial de turnos"
-              >
-                <RefreshCw size={14} className={cargandoReporte ? 'animate-spin' : ''} />
-              </button>
             </div>
 
-            {reporteCortes.length === 0 ? (
-              <div className="text-center py-10 text-slate-500">
+            {cortesDelDia.length === 0 ? (
+              <div className="text-center py-10 text-slate-500 bg-slate-900/20 rounded-2xl border border-slate-800/40">
                 <Clock className="mx-auto mb-3 opacity-30" size={32} />
-                <p className="text-sm">No se han registrado turnos en el sistema.</p>
+                <p className="text-sm">No se han cerrado turnos en esta fecha.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1805,11 +1895,11 @@ export default function AdminView() {
                       <th className="px-3 py-3 text-right">Ventas Efectivo</th>
                       <th className="px-3 py-3 text-right">Ventas Tarjeta</th>
                       <th className="px-3 py-3 text-right">Cargos Socios</th>
-                      <th className="px-3 py-3 text-right">Ventas Netas</th>
+                      <th className="px-3 py-3 text-right font-bold text-white">Ventas Netas</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {reporteCortes.map((t) => (
+                    {cortesDelDia.map((t) => (
                       <tr key={t.id} className="hover:bg-slate-800/20 transition-colors">
                         <td className="px-3 py-3 font-mono font-bold text-slate-400">#{t.id}</td>
                         <td className="px-3 py-3">
@@ -1846,7 +1936,7 @@ export default function AdminView() {
                         <td className="px-3 py-3 text-right font-bold text-yellow-400">
                           ${t.cargos_socios.toFixed(2)}
                         </td>
-                        <td className="px-3 py-3 text-right font-extrabold text-campestre-gold bg-campestre-gold/5">
+                        <td className="px-3 py-3 text-right font-extrabold text-white">
                           ${t.ventas_netas.toFixed(2)}
                         </td>
                       </tr>
