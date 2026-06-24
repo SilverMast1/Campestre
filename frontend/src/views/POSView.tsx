@@ -45,6 +45,7 @@ export default function POSView() {
   // Filtro de Categorías / Mini-menús
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>('TODOS');
   const [busquedaProducto, setBusquedaProducto] = useState('');
+  const [mostrarAgotados, setMostrarAgotados] = useState(false);
 
   // Cuentas pendientes para los vendedores
   const [cuentasPendientes, setCuentasPendientes] = useState<any[]>([]);
@@ -1400,54 +1401,85 @@ export default function POSView() {
               </div>
             ) : (
               <div className="max-h-[520px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {productosFiltrados.map((prod) => {
-                    const sinStock = prod.stock <= 0;
-                    return (
-                      <button
-                        key={prod.id}
-                        disabled={sinStock}
-                        onClick={() => handleAgregarProductoAlCarrito(prod)}
-                        className={`glass-card rounded-2xl p-4 border text-left flex flex-col justify-between transition-all duration-300 relative group overflow-hidden ${
-                          sinStock 
-                            ? 'border-slate-900 opacity-50 cursor-not-allowed'
-                            : 'border-slate-800 hover:border-campestre-green/50 active:scale-[0.98]'
-                        }`}
-                      >
-                        {/* Efecto hover */}
-                        <div className="absolute inset-0 bg-campestre-green/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {productosFiltrados.filter(p => p.stock > 0).map((prod) => {
+                      const sinStock = false;
+                      return (
+                        <button
+                          key={prod.id}
+                          disabled={sinStock}
+                          onClick={() => handleAgregarProductoAlCarrito(prod)}
+                          className={`glass-card rounded-2xl p-4 border text-left flex flex-col justify-between transition-all duration-300 relative group overflow-hidden border-slate-800 hover:border-campestre-green/50 active:scale-[0.98]`}
+                        >
+                          <div className="absolute inset-0 bg-campestre-green/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
 
-                        {/* Badge Sin Stock / Categoría */}
-                        {sinStock ? (
-                          <span className="text-[10px] font-bold uppercase tracking-wider bg-red-500/15 text-red-400 border border-red-500/25 px-2 py-0.5 rounded-md w-fit mb-3">
-                            Sin Disponible
-                          </span>
-                        ) : (
                           <span className="text-[10px] text-campestre-gold font-semibold uppercase tracking-wider bg-campestre-gold/10 px-2 py-0.5 rounded-md w-fit mb-3">
                             {prod.categoria?.toLowerCase() === 'descuentos' ? '30% de Descuento' : (prod.categoria || 'Común')}
                           </span>
-                        )}
-                        <div>
-                          <h4 className="font-bold text-sm text-white line-clamp-2 leading-tight group-hover:text-campestre-gold transition-colors">{prod.nombre}</h4>
-                          <p className="text-xs text-slate-400 mt-1">Stock: <b className={sinStock ? 'text-red-400' : ''}>{prod.stock}</b> pz</p>
-                        </div>
-                        <div className="flex items-center justify-between mt-4 pt-2 border-t border-slate-800/80">
-                          {prod.categoria?.toLowerCase() === 'descuentos' ? (
-                            <span className="text-xs font-bold text-emerald-400 Outfit">Aplica 30% a la cuenta</span>
-                          ) : (
-                            <span className="text-base font-extrabold text-white Outfit">${prod.precio_venta.toFixed(2)}</span>
-                          )}
-                          {sinStock ? (
-                            <span className="p-1 rounded-lg bg-red-500/10 text-red-400 text-[10px] font-bold">🚫</span>
-                          ) : (
+                          <div>
+                            <h4 className="font-bold text-sm text-white line-clamp-2 leading-tight group-hover:text-campestre-gold transition-colors">{prod.nombre}</h4>
+                            <p className="text-xs text-slate-400 mt-1">Stock: <b>{prod.stock}</b> pz</p>
+                          </div>
+                          <div className="flex items-center justify-between mt-4 pt-2 border-t border-slate-800/80">
+                            {prod.categoria?.toLowerCase() === 'descuentos' ? (
+                              <span className="text-xs font-bold text-emerald-400 Outfit">Aplica 30% a la cuenta</span>
+                            ) : (
+                              <span className="text-base font-extrabold text-white Outfit">${prod.precio_venta.toFixed(2)}</span>
+                            )}
                             <span className="p-1 rounded-lg bg-campestre-green/10 text-campestre-green group-hover:bg-campestre-green group-hover:text-white transition-all">
                               <Plus size={14} />
                             </span>
-                          )}
-                        </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {productosFiltrados.filter(p => p.stock <= 0).length > 0 && (
+                    <div className="mt-2 border-t border-slate-800/50 pt-4">
+                      <button 
+                        onClick={() => setMostrarAgotados(!mostrarAgotados)}
+                        className="text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-2 mb-4 bg-slate-800/50 px-4 py-2 rounded-xl border border-slate-700/50 transition-colors"
+                      >
+                        {mostrarAgotados ? 'Ocultar productos agotados' : `Mostrar ${productosFiltrados.filter(p => p.stock <= 0).length} productos agotados`}
                       </button>
-                    );
-                  })}
+
+                      {mostrarAgotados && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 opacity-60">
+                          {productosFiltrados.filter(p => p.stock <= 0).map((prod) => {
+                            const sinStock = true;
+                            return (
+                              <button
+                                key={prod.id}
+                                disabled={sinStock}
+                                onClick={() => handleAgregarProductoAlCarrito(prod)}
+                                className={`glass-card rounded-2xl p-4 border text-left flex flex-col justify-between transition-all duration-300 relative group overflow-hidden border-slate-900 cursor-not-allowed`}
+                              >
+                                <div className="absolute inset-0 bg-campestre-green/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+
+                                <span className="text-[10px] font-bold uppercase tracking-wider bg-red-500/15 text-red-400 border border-red-500/25 px-2 py-0.5 rounded-md w-fit mb-3">
+                                  Sin Disponible
+                                </span>
+                                <div>
+                                  <h4 className="font-bold text-sm text-white line-clamp-2 leading-tight group-hover:text-campestre-gold transition-colors">{prod.nombre}</h4>
+                                  <p className="text-xs text-slate-400 mt-1">Stock: <b className="text-red-400">{prod.stock}</b> pz</p>
+                                </div>
+                                <div className="flex items-center justify-between mt-4 pt-2 border-t border-slate-800/80">
+                                  {prod.categoria?.toLowerCase() === 'descuentos' ? (
+                                    <span className="text-xs font-bold text-emerald-400 Outfit">Aplica 30% a la cuenta</span>
+                                  ) : (
+                                    <span className="text-base font-extrabold text-white Outfit">${prod.precio_venta.toFixed(2)}</span>
+                                  )}
+                                  <span className="p-1 rounded-lg bg-red-500/10 text-red-400 text-[10px] font-bold">🚫</span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
