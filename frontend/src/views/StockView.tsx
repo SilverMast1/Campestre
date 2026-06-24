@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { RefreshCw, ArrowLeftRight, AlertTriangle, Check, ShieldAlert, Package, Search, Edit2, Trash2 } from 'lucide-react';
+import { RefreshCw, ArrowLeftRight, AlertTriangle, Check, ShieldAlert, Package, Search, Edit2, Trash2, Plus } from 'lucide-react';
 
 interface ProductoStock {
   id: number;
@@ -28,7 +28,7 @@ export default function StockView() {
   const [cargandoMermas, setCargandoMermas] = useState(false);
 
   // Modos de Panel
-  const [panelMode, setPanelMode] = useState<'traspaso' | 'editar' | 'merma'>('traspaso');
+  const [panelMode, setPanelMode] = useState<'traspaso' | 'editar' | 'merma' | 'sumar_stock'>('traspaso');
 
   // Formulario de Merma
   const [productoMermaId, setProductoMermaId] = useState('');
@@ -36,6 +36,12 @@ export default function StockView() {
   const [cantidadMerma, setCantidadMerma] = useState('');
   const [motivoMerma, setMotivoMerma] = useState('');
   const [mermando, setMermando] = useState(false);
+
+  // Formulario de Sumar Stock
+  const [sumarProductoId, setSumarProductoId] = useState('');
+  const [sumarArea, setSumarArea] = useState('1');
+  const [sumarCantidad, setSumarCantidad] = useState('');
+  const [sumandoStock, setSumandoStock] = useState(false);
 
   // Formulario de Traspaso
   const [productoSeleccionadoId, setProductoSeleccionadoId] = useState('');
@@ -113,6 +119,7 @@ export default function StockView() {
       if (compiledList.length > 0) {
         if (!productoSeleccionadoId) setProductoSeleccionadoId(compiledList[0].id.toString());
         if (!productoMermaId) setProductoMermaId(compiledList[0].id.toString());
+        if (!sumarProductoId) setSumarProductoId(compiledList[0].id.toString());
       }
     } catch (err: any) {
       console.error(err);
@@ -265,6 +272,62 @@ export default function StockView() {
       setError(err.message || 'Error de red al registrar la merma');
     } finally {
       setMermando(false);
+    }
+  };
+
+  const handleSumarStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sumarProductoId || !sumarArea || !sumarCantidad) {
+      setError('Todos los campos son requeridos para sumar stock');
+      return;
+    }
+    const cantidad = parseFloat(sumarCantidad);
+    if (isNaN(cantidad) || cantidad <= 0) {
+      setError('La cantidad a sumar debe ser mayor a cero');
+      return;
+    }
+
+    const prod = productos.find((p) => p.id === parseInt(sumarProductoId));
+    if (!prod) return;
+
+    let stockActual = 0;
+    if (sumarArea === '1') stockActual = prod.stockBar;
+    else if (sumarArea === '2') stockActual = prod.stockSnack;
+    else stockActual = prod.stockPalapa;
+
+    const nuevoStock = stockActual + cantidad;
+
+    setSumandoStock(true);
+    setError('');
+    setMensajeExito('');
+
+    try {
+      const res = await fetch('/api/admin/inventario', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          area_id: parseInt(sumarArea),
+          producto_id: prod.id,
+          nuevo_stock: nuevoStock,
+          motivo: 'Entrada manual de stock',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMensajeExito(`Stock sumado correctamente. Nuevo stock: ${nuevoStock}`);
+        setSumarCantidad('');
+        cargarStockData();
+        setTimeout(() => setMensajeExito(''), 4000);
+      } else {
+        throw new Error(data.error || 'Error al sumar stock');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error de red');
+    } finally {
+      setSumandoStock(false);
     }
   };
 
@@ -797,14 +860,25 @@ export default function StockView() {
           ) : (
             <div className="space-y-4">
               {/* Selector de modo del panel lateral */}
-              <div className="flex bg-slate-900/60 p-1 rounded-xl w-full border border-slate-800/80">
+              <div className="flex bg-slate-900/60 p-1 rounded-xl w-full border border-slate-800/80 flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPanelMode('sumar_stock')}
+                  className={`flex-1 min-w-[30%] py-1.5 text-center text-[10px] font-semibold rounded-lg transition-all ${
+                    panelMode === 'sumar_stock'
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 shadow-sm font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Sumar Stock
+                </button>
                 <button
                   type="button"
                   onClick={() => setPanelMode('traspaso')}
-                  className={`flex-1 py-1.5 text-center text-xs font-semibold rounded-lg transition-all ${
+                  className={`flex-1 min-w-[30%] py-1.5 text-center text-[10px] font-semibold rounded-lg transition-all ${
                     panelMode === 'traspaso'
                       ? 'bg-campestre-gold text-slate-950 shadow-sm font-bold'
-                      : 'text-slate-400 hover:text-slate-205'
+                      : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   Traspaso
@@ -817,17 +891,86 @@ export default function StockView() {
                       setProductoMermaId(productos[0].id.toString());
                     }
                   }}
-                  className={`flex-1 py-1.5 text-center text-xs font-semibold rounded-lg transition-all ${
+                  className={`flex-1 min-w-[30%] py-1.5 text-center text-[10px] font-semibold rounded-lg transition-all ${
                     panelMode === 'merma'
                       ? 'bg-red-500/15 text-red-400 border border-red-500/20 shadow-sm font-bold'
-                      : 'text-slate-400 hover:text-slate-205'
+                      : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   Registrar Merma
                 </button>
               </div>
 
-              {panelMode === 'merma' ? (
+              {panelMode === 'sumar_stock' ? (
+                <div className="glass-card rounded-2xl border border-slate-800/80 p-5 space-y-4 bg-slate-900/10 animate-fade-in">
+                  <div>
+                    <h3 className="text-lg font-bold text-white Outfit flex items-center gap-2">
+                      <Plus size={18} className="text-emerald-400" />
+                      <span>Sumar Stock Rápido</span>
+                    </h3>
+                    <p className="text-slate-400 text-[10px] mt-1">Añade inventario a un producto en una ubicación específica</p>
+                  </div>
+
+                  <form onSubmit={handleSumarStock} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">Producto a sumar</label>
+                      <select
+                        required
+                        value={sumarProductoId}
+                        onChange={(e) => setSumarProductoId(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-xs text-white rounded-xl focus:outline-none focus:border-emerald-500/50"
+                      >
+                        {productos.map((prod) => (
+                          <option key={prod.id} value={prod.id}>
+                            {prod.nombre} (B:{prod.stockBar} S:{prod.stockSnack} P:{prod.stockPalapa})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">Área de Ingreso</label>
+                        <select
+                          required
+                          value={sumarArea}
+                          onChange={(e) => setSumarArea(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-xs text-white rounded-xl focus:outline-none focus:border-emerald-500/50"
+                        >
+                          <option value="1">Bar (Principal)</option>
+                          <option value="2">Snack</option>
+                          <option value="3">Palapa</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">Cantidad a Añadir</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0.01"
+                          required
+                          value={sumarCantidad}
+                          onChange={(e) => setSumarCantidad(e.target.value)}
+                          placeholder="Ej. 10"
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-xs text-white rounded-xl focus:outline-none focus:border-emerald-500/50"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={sumandoStock || productos.length === 0}
+                      className="w-full py-3 bg-emerald-500 text-white hover:bg-emerald-600 font-bold rounded-xl text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                    >
+                      {sumandoStock ? (
+                        <RefreshCw size={14} className="animate-spin" />
+                      ) : (
+                        <span>Sumar Stock al Inventario</span>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              ) : panelMode === 'merma' ? (
                 <div className="glass-card rounded-2xl border border-slate-800/80 p-5 space-y-4 bg-slate-900/10 animate-fade-in">
                   <div>
                     <h3 className="text-lg font-bold text-white Outfit flex items-center gap-2">
