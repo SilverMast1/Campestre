@@ -597,9 +597,9 @@ export default function AdminView() {
     } catch (err) { console.error(err); }
   };
 
-  const cargarBalances = async () => {
+  const cargarBalances = async (areaId = areaTurnoAdmin) => {
     try {
-      const res = await fetch('/api/admin/caja', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`/api/admin/caja?area_id=${areaId}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setBalances(data);
     } catch (err) { console.error(err); }
@@ -634,8 +634,11 @@ export default function AdminView() {
   useEffect(() => {
     if (token) {
       cargarTurnoActivo(areaTurnoAdmin);
+      if (esAdmin) {
+        cargarBalances(areaTurnoAdmin);
+      }
     }
-  }, [areaTurnoAdmin, token]);
+  }, [areaTurnoAdmin, token, esAdmin]);
 
   const handleAbrirTurno = async () => {
     setError(''); setSuccess(''); setCargandoTurno(true);
@@ -1244,11 +1247,11 @@ export default function AdminView() {
 
           {esAdmin && (
             <>
-      {/* ===== PANEL FINANCIERO GLOBAL ===== */}
+      {/* ===== PANEL FINANCIERO DE ÁREA ===== */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">💵 Caja de Efectivo (Global)</span>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">💵 Caja de Efectivo ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
             <h4 className="text-2xl font-extrabold text-emerald-400">${balances.efectivo.toFixed(2)} MXN</h4>
             <span className="text-[9px] text-slate-500 block">Acumulado total en efectivo</span>
           </div>
@@ -1256,7 +1259,7 @@ export default function AdminView() {
         </div>
         <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">💳 Terminal de Tarjetas (Global)</span>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">💳 Terminal de Tarjetas ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
             <h4 className="text-2xl font-extrabold text-blue-400">${balances.tarjeta.toFixed(2)} MXN</h4>
             <span className="text-[9px] text-slate-500 block">Acumulado total con tarjeta</span>
           </div>
@@ -1264,7 +1267,7 @@ export default function AdminView() {
         </div>
         <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">⛳ Cargos a Socios (Global)</span>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">⛳ Cargos a Socios ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
             <h4 className="text-2xl font-extrabold text-yellow-400">${balances.cargo_socio.toFixed(2)} MXN</h4>
             <span className="text-[9px] text-slate-500 block">Cuentas por cobrar de miembros</span>
           </div>

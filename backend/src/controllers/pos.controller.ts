@@ -833,26 +833,51 @@ export async function crearProducto(req: AuthenticatedRequest, res: Response) {
 }
 
 // 11. Obtener balances contables acumulados de caja (Solo Administradores)
-// Agrega tanto pagos divididos (divisiones_cuentas) como pagos directos (cuentas.metodo_pago)
+// Filtra los pagos asociados al turno activo del área proporcionada.
 export async function obtenerBalanceCaja(req: AuthenticatedRequest, res: Response) {
   try {
-    // 1. Pagos divididos por socios
+    const { area_id } = req.query;
+    
+    if (!area_id) {
+      return res.status(400).json({ error: 'Falta proporcionar area_id' });
+    }
+
+    const areaIdNum = parseInt(area_id as string);
+
+    // Buscar turno activo del área
+    const turno = await prisma.turno.findFirst({
+      where: {
+        area_id: areaIdNum,
+        cerrado_at: null
+      },
+      orderBy: { id: 'desc' }
+    });
+
+    if (!turno) {
+      return res.json({ efectivo: 0, tarjeta: 0, cargo_socio: 0 });
+    }
+
+    // 1. Pagos divididos por socios en cuentas de este turno
     const balancesDivisiones = await prisma.divisionCuenta.groupBy({
       by: ['metodo_pago'],
       where: {
         estado_pago: 'PAGADO',
+        cuenta: {
+          turno_id: turno.id
+        }
       },
       _sum: {
         monto_proporcional: true,
       },
     });
 
-    // 2. Pagos directos (sin socios)
+    // 2. Pagos directos (sin socios) en este turno
     const balancesDirectos = await prisma.cuenta.groupBy({
       by: ['metodo_pago'],
       where: {
         estado: 'PAGADA',
         metodo_pago: { not: null },
+        turno_id: turno.id
       },
       _sum: {
         total: true,
