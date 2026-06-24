@@ -75,6 +75,7 @@ model Area {
   inventarios          InventarioArea[]
   movimientosInventario MovimientoInventario[]
   cuentas              Cuenta[]
+  turnos               Turno[]
 
   @@map("areas")
 }
@@ -242,6 +243,7 @@ model DivisionCuenta {
 model Turno {
   id             Int          @id @default(autoincrement())
   usuario_id     Int
+  area_id        Int?
   fondo_inicial  Decimal      @db.Decimal(12, 4)
   caja_efectivo  Decimal      @default(0.0000) @db.Decimal(12, 4)
   caja_tarjeta   Decimal      @default(0.0000) @db.Decimal(12, 4)
@@ -250,6 +252,7 @@ model Turno {
   cerrado_at     DateTime?    @db.Timestamptz
   activo         Boolean      @default(true)
   usuario        Usuario      @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+  area           Area?        @relation(fields: [area_id], references: [id], onDelete: Restrict)
   cuentas        Cuenta[]
   retiros        RetiroCaja[]
 

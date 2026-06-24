@@ -157,7 +157,7 @@ export async function abrirCuenta(req: AuthenticatedRequest, res: Response) {
 
   try {
     const turnoActivo = await prisma.turno.findFirst({
-      where: { activo: true },
+      where: { activo: true, area_id: parseInt(area_id) },
       orderBy: { abierto_at: 'desc' },
     });
 
@@ -637,16 +637,17 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
     let whereClause: any = {};
 
     if (solo_turno_activo === 'true') {
-      const turnoActivo = await prisma.turno.findFirst({
+      const turnosActivos = await prisma.turno.findMany({
         where: { activo: true },
-        orderBy: { abierto_at: 'desc' },
       });
 
-      if (!turnoActivo || !esMismoDia(new Date(), new Date(turnoActivo.abierto_at))) {
+      const turnosValidos = turnosActivos.filter(t => esMismoDia(new Date(), new Date(t.abierto_at)));
+
+      if (turnosValidos.length === 0) {
         return res.json([]);
       }
 
-      whereClause.turno_id = turnoActivo.id;
+      whereClause.turno_id = { in: turnosValidos.map(t => t.id) };
     }
 
     const cuentas = await prisma.cuenta.findMany({

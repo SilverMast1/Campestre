@@ -616,10 +616,12 @@ export default function AdminView() {
   };
 
   // ===== TURNO / CORTE DE CAJA =====
-  const cargarTurnoActivo = async () => {
+  const [areaTurnoAdmin, setAreaTurnoAdmin] = useState<number>(1);
+
+  const cargarTurnoActivo = async (areaId = areaTurnoAdmin) => {
     setCargandoTurno(true);
     try {
-      const res = await fetch('/api/admin/turno/activo', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`/api/admin/turno/activo?area_id=${areaId}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) {
         setTurnoActivo(data.activo);
@@ -629,6 +631,12 @@ export default function AdminView() {
     finally { setCargandoTurno(false); }
   };
 
+  useEffect(() => {
+    if (token) {
+      cargarTurnoActivo(areaTurnoAdmin);
+    }
+  }, [areaTurnoAdmin, token]);
+
   const handleAbrirTurno = async () => {
     setError(''); setSuccess(''); setCargandoTurno(true);
     const fondo = parseFloat(fondoInicial);
@@ -637,7 +645,7 @@ export default function AdminView() {
       const res = await fetch('/api/admin/turno/abrir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fondo_inicial: fondo }),
+        body: JSON.stringify({ fondo_inicial: fondo, area_id: areaTurnoAdmin }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al abrir turno');
@@ -653,6 +661,7 @@ export default function AdminView() {
       const res = await fetch('/api/admin/turno/cerrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ area_id: areaTurnoAdmin }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al cerrar turno');
@@ -682,7 +691,7 @@ export default function AdminView() {
       const res = await fetch('/api/admin/turno/retiro', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ monto, motivo: motivoRetiro }),
+        body: JSON.stringify({ monto, motivo: motivoRetiro, area_id: areaTurnoAdmin }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al registrar retiro');
@@ -992,7 +1001,19 @@ export default function AdminView() {
         <div className="flex flex-wrap justify-between items-center gap-3">
           <h3 className="text-lg font-bold flex items-center gap-2">
             <DollarSign className="text-campestre-gold" size={20} />
-            <span>Corte de Caja — Turno Activo</span>
+            <span>Corte de Caja</span>
+            <select
+              value={areaTurnoAdmin}
+              onChange={(e) => {
+                setAreaTurnoAdmin(Number(e.target.value));
+                setResumenCierre(null);
+              }}
+              className="ml-4 bg-slate-800 text-sm border border-slate-700 rounded px-2 py-1 outline-none text-white focus:border-campestre-gold"
+            >
+              <option value={1}>Bar</option>
+              <option value={2}>Snack</option>
+              <option value={3}>Palapa</option>
+            </select>
           </h3>
           <div className="flex items-center gap-2">
             <button onClick={cargarTurnoActivo}

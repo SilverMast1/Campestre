@@ -5,21 +5,21 @@ import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 
 // 1. Abrir un nuevo turno de caja (Apertura)
 export async function abrirTurno(req: AuthenticatedRequest, res: Response) {
-  const { fondo_inicial } = req.body;
+  const { fondo_inicial, area_id } = req.body;
   const usuarioId = req.user?.id;
 
-  if (fondo_inicial === undefined || !usuarioId) {
-    return res.status(400).json({ error: 'Fondo inicial y usuario administrador/vendedor requeridos' });
+  if (fondo_inicial === undefined || !usuarioId || !area_id) {
+    return res.status(400).json({ error: 'Fondo inicial, área y usuario requeridos' });
   }
 
   try {
-    // Verificar si ya existe un turno activo
+    // Verificar si ya existe un turno activo para esa área
     const turnoPrevio = await prisma.turno.findFirst({
-      where: { activo: true },
+      where: { activo: true, area_id: Number(area_id) },
     });
 
     if (turnoPrevio) {
-      return res.status(400).json({ error: 'Ya existe un turno activo en el sistema. Debe cerrarlo primero.' });
+      return res.status(400).json({ error: 'Ya existe un turno activo para esta área. Debe cerrarlo primero.' });
     }
 
     const fondoDec = new Decimal(fondo_inicial);
@@ -30,6 +30,7 @@ export async function abrirTurno(req: AuthenticatedRequest, res: Response) {
     const nuevoTurno = await prisma.turno.create({
       data: {
         usuario_id: usuarioId,
+        area_id: Number(area_id),
         fondo_inicial: fondoDec,
         activo: true,
       },
@@ -52,9 +53,10 @@ export async function abrirTurno(req: AuthenticatedRequest, res: Response) {
 
 // 2. Obtener turno activo y su historial de ventas actual
 export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Response) {
+  const area_id = req.query.area_id;
   try {
     const turno = await prisma.turno.findFirst({
-      where: { activo: true },
+      where: { activo: true, ...(area_id ? { area_id: Number(area_id) } : {}) },
       include: {
         cuentas: {
           where: { estado: 'PAGADA' },
@@ -161,9 +163,10 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
 
 // 3. Cerrar caja y terminar turno (Arqueo y Cierre)
 export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
+  const { area_id } = req.body;
   try {
     const turnoActivo = await prisma.turno.findFirst({
-      where: { activo: true },
+      where: { activo: true, ...(area_id ? { area_id: Number(area_id) } : {}) },
     });
 
     if (!turnoActivo) {
@@ -373,7 +376,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
 
 // 4. Registrar un retiro de efectivo de la caja activa
 export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Response) {
-  const { monto, motivo } = req.body;
+  const { monto, motivo, area_id } = req.body;
 
   if (monto === undefined || isNaN(parseFloat(monto)) || parseFloat(monto) <= 0) {
     return res.status(400).json({ error: 'Monto de retiro válido requerido' });
@@ -385,7 +388,7 @@ export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Respon
 
   try {
     const turnoActivo = await prisma.turno.findFirst({
-      where: { activo: true },
+      where: { activo: true, ...(area_id ? { area_id: Number(area_id) } : {}) },
       include: {
         cuentas: {
           where: { estado: 'PAGADA' },

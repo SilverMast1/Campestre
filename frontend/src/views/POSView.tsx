@@ -458,7 +458,7 @@ export default function POSView() {
     if (!token) return;
     setCargandoPagadas(true);
     try {
-      const res = await fetch('/api/admin/turno/activo', {
+      const res = await fetch('/api/admin/turno/activo?area_id=' + areaId, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -500,7 +500,7 @@ export default function POSView() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ fondo_inicial: fondo }),
+        body: JSON.stringify({ fondo_inicial: fondo, area_id: areaId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al abrir turno');
