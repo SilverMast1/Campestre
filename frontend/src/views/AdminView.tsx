@@ -1016,7 +1016,7 @@ export default function AdminView() {
             </select>
           </h3>
           <div className="flex items-center gap-2">
-            <button onClick={cargarTurnoActivo}
+            <button onClick={() => cargarTurnoActivo()}
               className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors"
               title="Recargar estado del turno"
             >
