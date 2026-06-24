@@ -20,6 +20,7 @@ export default function StockView() {
   const [filtro, setFiltro] = useState('');
   const [error, setError] = useState('');
   const [mensajeExito, setMensajeExito] = useState('');
+  const [mostrarStockCritico, setMostrarStockCritico] = useState(false);
 
   // Historial de Mermas
   const [mostrarModalMermas, setMostrarModalMermas] = useState(false);
@@ -526,12 +527,22 @@ export default function StockView() {
           {/* Alerta y Mini-lista de Productos Críticos */}
           {productosCriticos.length > 0 && (
             <div className="glass-card rounded-2xl border border-red-500/30 bg-red-500/5 p-4 space-y-3">
-              <div className="flex items-center space-x-2 text-red-400">
-                <AlertTriangle size={16} className="animate-pulse" />
-                <h4 className="text-xs font-bold uppercase tracking-wider Outfit">Productos con Stock Crítico (Poco Stock)</h4>
+              <div 
+                className="flex items-center justify-between text-red-400 cursor-pointer select-none"
+                onClick={() => setMostrarStockCritico(!mostrarStockCritico)}
+              >
+                <div className="flex items-center space-x-2">
+                  <AlertTriangle size={16} className={mostrarStockCritico ? "" : "animate-pulse"} />
+                  <h4 className="text-xs font-bold uppercase tracking-wider Outfit">Productos con Stock Crítico (Poco Stock)</h4>
+                </div>
+                <span className="text-xs bg-red-500/20 px-2 py-1 rounded-lg">
+                  {mostrarStockCritico ? 'Ocultar' : 'Mostrar'}
+                </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {productosCriticos.map((prod) => (
+              
+              {mostrarStockCritico && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 animate-fade-in">
+                  {productosCriticos.map((prod) => (
                   <div key={`crit-${prod.id}`} className="bg-slate-950/60 border border-slate-850 p-2.5 rounded-xl text-[11px] flex justify-between items-center">
                     <div>
                       <span className="text-white font-semibold block">{prod.nombre}</span>
@@ -555,8 +566,9 @@ export default function StockView() {
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
