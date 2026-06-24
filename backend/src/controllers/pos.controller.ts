@@ -1285,3 +1285,75 @@ export async function eliminarProducto(req: AuthenticatedRequest, res: Response)
     return res.status(500).json({ error: error.message || 'Error al eliminar el producto' });
   }
 }
+
+// 17. Fusionar Cuentas Abiertas
+export async function fusionarCuentas(req: AuthenticatedRequest, res: Response) {
+  const { cuenta_origen_id, cuenta_destino_id } = req.body;
+
+  if (!cuenta_origen_id || !cuenta_destino_id) {
+    return res.status(400).json({ error: 'Faltan IDs de las cuentas a fusionar' });
+  }
+
+  if (cuenta_origen_id === cuenta_destino_id) {
+    return res.status(400).json({ error: 'No puedes fusionar una cuenta consigo misma' });
+  }
+
+  try {
+    // 1. Validar que ambas existan y estén abiertas
+    const cuentaOrigen = await prisma.cuenta.findUnique({
+      where: { id: BigInt(cuenta_origen_id) },
+      include: { detalleCuentas: true }
+    });
+    const cuentaDestino = await prisma.cuenta.findUnique({
+      where: { id: BigInt(cuenta_destino_id) },
+      include: { detalleCuentas: true }
+    });
+
+    if (!cuentaOrigen || cuentaOrigen.closed_at) {
+      return res.status(400).json({ error: 'La cuenta origen no existe o ya está cerrada' });
+    }
+    if (!cuentaDestino || cuentaDestino.closed_at) {
+      return res.status(400).json({ error: 'La cuenta destino no existe o ya está cerrada' });
+    }
+
+    // 2. Transaccionar la fusión
+    await prisma.$transaction(async (tx) => {
+      // Mover los detalles de la cuenta origen a la destino
+      await tx.detalleCuenta.updateMany({
+        where: { cuenta_id: cuentaOrigen.id },
+        data: { cuenta_id: cuentaDestino.id }
+      });
+
+      // Recalcular los totales de la cuenta destino
+      // Todos los detalles de ambas cuentas (origen + destino) ahora pertenecen a destino en memoria
+      const detallesCombinados = [...cuentaDestino.detalleCuentas, ...cuentaOrigen.detalleCuentas];
+      const nuevoSubtotal = detallesCombinados.reduce((acc, curr) => acc + Number(curr.subtotal), 0);
+      const nuevosImpuestos = detallesCombinados.reduce((acc, curr) => acc + Number(curr.impuestos), 0);
+      const nuevoTotal = detallesCombinados.reduce((acc, curr) => acc + Number(curr.total), 0);
+
+      await tx.cuenta.update({
+        where: { id: cuentaDestino.id },
+        data: {
+          subtotal: nuevoSubtotal,
+          impuestos: nuevosImpuestos,
+          total: nuevoTotal
+        }
+      });
+
+      // Eliminar la cuenta origen
+      await tx.cuenta.delete({
+        where: { id: cuentaOrigen.id }
+      });
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('cuenta:actualizada');
+    }
+
+    return res.json({ message: 'Cuentas fusionadas correctamente' });
+  } catch (error: any) {
+    console.error('Error al fusionar cuentas:', error);
+    return res.status(500).json({ error: error.message || 'Error al fusionar cuentas' });
+  }
+}

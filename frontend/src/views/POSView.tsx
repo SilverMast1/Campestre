@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { TicketVenta } from '../components/TicketVenta';
-import { ShoppingCart, User, Users, Search, Plus, Minus, Trash2, CreditCard, Check, Sparkles, RefreshCw, Clock, X } from 'lucide-react';
+import { ShoppingCart, User, Users, Search, Plus, Minus, Trash2, CreditCard, Check, Sparkles, RefreshCw, Clock, X, Merge } from 'lucide-react';
 import { io } from 'socket.io-client';
 
 export default function POSView() {
@@ -75,7 +75,13 @@ export default function POSView() {
   const [metodosPagoLiquidacion, setMetodosPagoLiquidacion] = useState<{ [clienteId: number]: string }>({});
 
   // Estados para creación rápida de Socios y Cadis en POS (Vendedores)
+  const [mostrarConfirmacionLimpiar, setMostrarConfirmacionLimpiar] = useState(false);
   const [mostrarModalCrearSocio, setMostrarModalCrearSocio] = useState(false);
+
+  // States para Fusión de Cuentas
+  const [mostrarModalFusion, setMostrarModalFusion] = useState(false);
+  const [cuentaOrigenFusionId, setCuentaOrigenFusionId] = useState('');
+  const [fusionando, setFusionando] = useState(false);
   const [mostrarModalIniciarRonda, setMostrarModalIniciarRonda] = useState(false);
   const [mostrarFormCrearCadiInterno, setMostrarFormCrearCadiInterno] = useState(false);
 
@@ -795,6 +801,48 @@ export default function POSView() {
   };
 
   // Guardar cuenta abierta e iniciar el split
+  const handleFusionarCuentas = async () => {
+    if (!cuentaOrigenFusionId || !cuentaId) return;
+    
+    setFusionando(true);
+    setErrorMsg('');
+    
+    try {
+      const res = await fetch('/api/pos/cuentas/fusionar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          cuenta_origen_id: cuentaOrigenFusionId,
+          cuenta_destino_id: cuentaId.toString()
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setMostrarModalFusion(false);
+        setCuentaOrigenFusionId('');
+        // Recargar la cuenta actual
+        const ctaTarget = cuentasPendientes.find(c => c.id.toString() === cuentaId.toString());
+        if (ctaTarget) {
+          // Volver a cargar la cuenta limpia
+          clearCart();
+          await cargarCuentasPendientes(); // This will trigger socket to refresh, we can also manually click edit again
+          setCuentaId(null);
+        }
+      } else {
+        throw new Error(data.error || 'Error al fusionar cuentas');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'Error de red al fusionar cuentas');
+    } finally {
+      setFusionando(false);
+    }
+  };
+
   const handleGuardarCuenta = async () => {
     if (cart.length === 0) return;
     setCargando(true);
@@ -1797,12 +1845,21 @@ export default function POSView() {
                   <span className="font-bold uppercase block">Edición Activa</span>
                   <span>Cuenta #{cuentaId.toString().slice(-6)} ({nombreReferencia || 'Sin Ref'})</span>
                 </div>
-                <button
-                  onClick={handleCancelarEdicion}
-                  className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-350 px-2 py-1 rounded-lg border border-slate-700 transition-colors font-bold"
-                >
-                  Cancelar
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setMostrarModalFusion(true)}
+                    className="text-[10px] bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-2 py-1 rounded-lg border border-blue-500/20 transition-colors font-bold flex items-center space-x-1"
+                  >
+                    <Merge size={12} />
+                    <span>Juntar</span>
+                  </button>
+                  <button
+                    onClick={handleCancelarEdicion}
+                    className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-350 px-2 py-1 rounded-lg border border-slate-700 transition-colors font-bold"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -2858,6 +2915,66 @@ export default function POSView() {
                   {cargando ? 'Iniciando...' : 'Iniciar Ronda'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Juntar Cuenta */}
+      {mostrarModalFusion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl shadow-glass p-6 space-y-6">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+              <h3 className="text-lg font-bold Outfit flex items-center space-x-2">
+                <Merge className="text-blue-400" size={18} />
+                <span>Juntar Cuenta</span>
+              </h3>
+              <button
+                onClick={() => { setMostrarModalFusion(false); setErrorMsg(''); }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {errorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-4 py-2.5 rounded-xl text-center">
+                {errorMsg}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <p className="text-xs text-slate-400">
+                Selecciona la cuenta que deseas <strong>fusionar hacia esta</strong>. Todos sus productos se pasarán a esta cuenta y la cuenta seleccionada desaparecerá.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">
+                  Cuenta Origen:
+                </label>
+                <select
+                  value={cuentaOrigenFusionId}
+                  onChange={(e) => setCuentaOrigenFusionId(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500"
+                >
+                  <option value="">-- Selecciona una cuenta --</option>
+                  {cuentasPendientes
+                    .filter(c => c.id.toString() !== cuentaId?.toString())
+                    .map(c => (
+                      <option key={c.id.toString()} value={c.id.toString()}>
+                        {c.nombre || `Cuenta #${c.id.toString().slice(-6)}`} (Total: ${c.total.toFixed(2)})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <button
+                onClick={handleFusionarCuentas}
+                disabled={fusionando || !cuentaOrigenFusionId}
+                className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-2 disabled:opacity-50 shadow-lg shadow-blue-500/20 transition-all"
+              >
+                {fusionando ? <RefreshCw size={14} className="animate-spin" /> : <Merge size={14} />}
+                <span>Juntar Cuentas</span>
+              </button>
             </div>
           </div>
         </div>
