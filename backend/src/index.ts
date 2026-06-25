@@ -145,6 +145,18 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
+// SERVIR FRONTEND COMPILADO (PRODUCCIÓN LOCAL)
+// ==========================================
+const frontendDist = path.join(__dirname, '../../frontend/dist');
+app.use(express.static(frontendDist));
+app.get('*', (req, res) => {
+  // Solo redirigir al frontend si no es una ruta de API
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  }
+});
+
+// ==========================================
 // CONFIGURACIÓN DE WEBSOCKETS (TIEMPO REAL)
 // ==========================================
 io.on('connection', (socket) => {
