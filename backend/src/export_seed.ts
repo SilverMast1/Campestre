@@ -115,15 +115,6 @@ async function main() {
     data: ${JSON.stringify(recetaIngredientes, null, 2)}
   });
 
-  // Restablecer las secuencias de PostgreSQL para evitar conflictos con IDs auto-incrementales
-  console.log('Restableciendo secuencias de IDs en PostgreSQL...');
-  const tables = ['roles', 'usuarios', 'areas', 'clientes', 'cadis', 'productos', 'insumos'];
-  for (const table of tables) {
-    await prisma.$executeRawUnsafe(
-      \`SELECT setval(pg_get_serial_sequence('"\${table}"', 'id'), coalesce(max(id), 1), max(id) IS NOT NULL) FROM "\${table}";\`
-    );
-  }
-
   console.log('Seed ejecutado con éxito. Se importaron todos los catálogos y stock locales.');
 }
 

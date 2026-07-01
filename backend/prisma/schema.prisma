@@ -1,5 +1,5 @@
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -9,10 +9,10 @@ generator client {
 
 model Role {
   id          Int            @id @default(autoincrement())
-  nombre      String         @unique @db.VarChar(50)
-  descripcion String?        @db.Text
-  created_at  DateTime       @default(now()) @db.Timestamptz
-  updated_at  DateTime       @default(now()) @updatedAt @db.Timestamptz
+  nombre      String         @unique
+  descripcion String?
+  created_at  DateTime       @default(now())
+  updated_at  DateTime       @default(now()) @updatedAt
   usuarios    UsuarioRole[]
   permisos    RolPermiso[]
 
@@ -21,13 +21,13 @@ model Role {
 
 model Usuario {
   id                   Int                    @id @default(autoincrement())
-  username             String                 @unique @db.VarChar(50)
-  password_hash        String                 @db.VarChar(255)
-  nombre               String                 @db.VarChar(100)
-  email                String?                @unique @db.VarChar(100)
+  username             String                 @unique
+  password_hash        String
+  nombre               String
+  email                String?                @unique
   activo               Boolean                @default(true)
-  created_at           DateTime               @default(now()) @db.Timestamptz
-  updated_at           DateTime               @default(now()) @updatedAt @db.Timestamptz
+  created_at           DateTime               @default(now())
+  updated_at           DateTime               @default(now()) @updatedAt
   roles                UsuarioRole[]
   cuentas              Cuenta[]
   movimientosInventario MovimientoInventario[]
@@ -48,9 +48,9 @@ model UsuarioRole {
 
 model Permiso {
   id          Int           @id @default(autoincrement())
-  codigo      String        @unique @db.VarChar(50)
-  descripcion String?       @db.Text
-  created_at  DateTime      @default(now()) @db.Timestamptz
+  codigo      String        @unique
+  descripcion String?
+  created_at  DateTime      @default(now())
   roles       RolPermiso[]
 
   @@map("permisos")
@@ -68,10 +68,10 @@ model RolPermiso {
 
 model Area {
   id                   Int                    @id @default(autoincrement())
-  nombre               String                 @unique @db.VarChar(50)
-  descripcion          String?                @db.Text
+  nombre               String                 @unique
+  descripcion          String?
   activo               Boolean                @default(true)
-  created_at           DateTime               @default(now()) @db.Timestamptz
+  created_at           DateTime               @default(now())
   inventarios          InventarioArea[]
   movimientosInventario MovimientoInventario[]
   cuentas              Cuenta[]
@@ -82,14 +82,14 @@ model Area {
 
 model Producto {
   id                   Int                    @id @default(autoincrement())
-  codigo_barras        String?                @unique @db.VarChar(50)
-  nombre               String                 @db.VarChar(100)
-  descripcion          String?                @db.Text
-  precio_venta         Decimal                @db.Decimal(12, 4)
-  categoria            String?                @db.VarChar(50)
+  codigo_barras        String?                @unique
+  nombre               String
+  descripcion          String?
+  precio_venta         Decimal
+  categoria            String?
   activo               Boolean                @default(true)
-  created_at           DateTime               @default(now()) @db.Timestamptz
-  updated_at           DateTime               @default(now()) @updatedAt @db.Timestamptz
+  created_at           DateTime               @default(now())
+  updated_at           DateTime               @default(now()) @updatedAt
   inventarios          InventarioArea[]
   movimientosInventario MovimientoInventario[]
   detalleCuentas       DetalleCuenta[]
@@ -101,11 +101,11 @@ model Producto {
 model InventarioArea {
   area_id           Int
   producto_id       Int
-  stock             Decimal  @default(0.0000) @db.Decimal(12, 4)
-  stock_minimo      Decimal  @default(0.0000) @db.Decimal(12, 4)
-  stock_maximo      Decimal  @default(0.0000) @db.Decimal(12, 4)
-  ubicacion_estante String?  @db.VarChar(50)
-  updated_at        DateTime @default(now()) @updatedAt @db.Timestamptz
+  stock             Decimal  @default(0.0000)
+  stock_minimo      Decimal  @default(0.0000)
+  stock_maximo      Decimal  @default(0.0000)
+  ubicacion_estante String?
+  updated_at        DateTime @default(now()) @updatedAt
   area              Area     @relation(fields: [area_id], references: [id], onDelete: Restrict)
   producto          Producto @relation(fields: [producto_id], references: [id], onDelete: Restrict)
 
@@ -114,35 +114,35 @@ model InventarioArea {
 }
 
 model MovimientoInventario {
-  id             BigInt   @id @default(autoincrement())
-  area_id        Int
-  producto_id    Int
-  tipo_movimiento String   @db.VarChar(20)
-  cantidad       Decimal  @db.Decimal(12, 4)
-  stock_anterior Decimal  @db.Decimal(12, 4)
-  stock_nuevo    Decimal  @db.Decimal(12, 4)
-  usuario_id     Int
-  referencia_id  String?  @db.VarChar(100)
-  motivo         String?  @db.Text
-  fecha          DateTime @default(now()) @db.Timestamptz
-  area           Area     @relation(fields: [area_id], references: [id], onDelete: Restrict)
-  producto       Producto @relation(fields: [producto_id], references: [id], onDelete: Restrict)
-  usuario        Usuario  @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+  id              BigInt   @id @default(autoincrement())
+  area_id         Int
+  producto_id     Int
+  tipo_movimiento String
+  cantidad        Decimal
+  stock_anterior  Decimal
+  stock_nuevo     Decimal
+  usuario_id      Int
+  referencia_id   String?
+  motivo          String?
+  fecha           DateTime @default(now())
+  area            Area     @relation(fields: [area_id], references: [id], onDelete: Restrict)
+  producto        Producto @relation(fields: [producto_id], references: [id], onDelete: Restrict)
+  usuario         Usuario  @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
 
   @@map("movimientos_inventario")
 }
 
 model Cliente {
   id              Int                      @id @default(autoincrement())
-  codigo_socio    String?                  @unique @db.VarChar(50)
-  nombre          String                   @db.VarChar(100)
-  email           String?                  @unique @db.VarChar(100)
-  password_hash   String?                  @db.VarChar(255)
-  telefono        String?                  @db.VarChar(20)
-  qr_token        String?                  @unique @db.VarChar(255)
+  codigo_socio    String?                  @unique
+  nombre          String
+  email           String?                  @unique
+  password_hash   String?
+  telefono        String?
+  qr_token        String?                  @unique
   activo          Boolean                  @default(true)
-  created_at      DateTime                 @default(now()) @db.Timestamptz
-  updated_at      DateTime                 @default(now()) @updatedAt @db.Timestamptz
+  created_at      DateTime                 @default(now())
+  updated_at      DateTime                 @default(now()) @updatedAt
   asignaciones    AsignacionCadiCliente[]
   divisionesCuentas DivisionCuenta[]
   cuentas         Cuenta[]
@@ -152,12 +152,12 @@ model Cliente {
 
 model Cadi {
   id           Int                      @id @default(autoincrement())
-  numero_cadi  String                   @unique @db.VarChar(20)
-  nombre       String                   @db.VarChar(100)
-  telefono     String?                  @db.VarChar(20)
-  estado       String                   @default("DISPONIBLE") @db.VarChar(20)
-  created_at   DateTime                 @default(now()) @db.Timestamptz
-  updated_at   DateTime                 @default(now()) @updatedAt @db.Timestamptz
+  numero_cadi  String                   @unique
+  nombre       String
+  telefono     String?
+  estado       String                   @default("DISPONIBLE")
+  created_at   DateTime                 @default(now())
+  updated_at   DateTime                 @default(now()) @updatedAt
   asignaciones AsignacionCadiCliente[]
   cuentas      Cuenta[]
 
@@ -168,10 +168,10 @@ model AsignacionCadiCliente {
   id           Int       @id @default(autoincrement())
   cadi_id      Int
   cliente_id   Int
-  fecha_inicio DateTime  @default(now()) @db.Timestamptz
-  fecha_fin    DateTime? @db.Timestamptz
+  fecha_inicio DateTime  @default(now())
+  fecha_fin    DateTime?
   activa       Boolean   @default(true)
-  created_at   DateTime  @default(now()) @db.Timestamptz
+  created_at   DateTime  @default(now())
   cadi         Cadi      @relation(fields: [cadi_id], references: [id], onDelete: Restrict)
   cliente      Cliente   @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
 
@@ -185,15 +185,15 @@ model Cuenta {
   usuario_id        Int
   cadi_id           Int?
   cliente_id        Int?
-  nombre_referencia String?         @db.VarChar(100)
-  estado            String          @default("ABIERTA") @db.VarChar(20)
-  subtotal          Decimal         @default(0.0000) @db.Decimal(12, 4)
-  impuestos         Decimal         @default(0.0000) @db.Decimal(12, 4)
-  descuento         Decimal         @default(0.0000) @db.Decimal(12, 4)
-  total             Decimal         @default(0.0000) @db.Decimal(12, 4)
-  metodo_pago       String?         @db.VarChar(50)
-  created_at        DateTime        @default(now()) @db.Timestamptz
-  closed_at         DateTime?       @db.Timestamptz
+  nombre_referencia String?
+  estado            String          @default("ABIERTA")
+  subtotal          Decimal         @default(0.0000)
+  impuestos         Decimal         @default(0.0000)
+  descuento         Decimal         @default(0.0000)
+  total             Decimal         @default(0.0000)
+  metodo_pago       String?
+  created_at        DateTime        @default(now())
+  closed_at         DateTime?
   turno_id          Int?
   area              Area            @relation(fields: [area_id], references: [id], onDelete: Restrict)
   usuario           Usuario         @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
@@ -210,14 +210,14 @@ model DetalleCuenta {
   id              BigInt   @id @default(autoincrement())
   cuenta_id       BigInt
   producto_id     Int
-  cantidad        Decimal  @db.Decimal(12, 4)
-  precio_unitario Decimal  @db.Decimal(12, 4)
-  descuento       Decimal  @default(0.0000) @db.Decimal(12, 4)
-  subtotal        Decimal  @db.Decimal(12, 4)
-  impuestos       Decimal  @default(0.0000) @db.Decimal(12, 4)
-  total           Decimal  @db.Decimal(12, 4)
-  estado_item     String   @default("PEDIDO") @db.VarChar(20)
-  created_at      DateTime @default(now()) @db.Timestamptz
+  cantidad        Decimal
+  precio_unitario Decimal
+  descuento       Decimal  @default(0.0000)
+  subtotal        Decimal
+  impuestos       Decimal  @default(0.0000)
+  total           Decimal
+  estado_item     String   @default("PEDIDO")
+  created_at      DateTime @default(now())
   cuenta          Cuenta   @relation(fields: [cuenta_id], references: [id], onDelete: Cascade)
   producto        Producto @relation(fields: [producto_id], references: [id], onDelete: Restrict)
 
@@ -228,11 +228,11 @@ model DivisionCuenta {
   id                       BigInt    @id @default(autoincrement())
   cuenta_id                BigInt
   cliente_id               Int
-  porcentaje_participacion Decimal   @db.Decimal(5, 2)
-  monto_proporcional       Decimal   @db.Decimal(12, 4)
-  metodo_pago              String?   @db.VarChar(50)
-  estado_pago              String    @default("PENDIENTE") @db.VarChar(20)
-  pagado_at                DateTime? @db.Timestamptz
+  porcentaje_participacion Decimal
+  monto_proporcional       Decimal
+  metodo_pago              String?
+  estado_pago              String    @default("PENDIENTE")
+  pagado_at                DateTime?
   cuenta                   Cuenta    @relation(fields: [cuenta_id], references: [id], onDelete: Restrict)
   cliente                  Cliente   @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
 
@@ -244,12 +244,12 @@ model Turno {
   id             Int          @id @default(autoincrement())
   usuario_id     Int
   area_id        Int?
-  fondo_inicial  Decimal      @db.Decimal(12, 4)
-  caja_efectivo  Decimal      @default(0.0000) @db.Decimal(12, 4)
-  caja_tarjeta   Decimal      @default(0.0000) @db.Decimal(12, 4)
-  caja_cargos    Decimal      @default(0.0000) @db.Decimal(12, 4)
-  abierto_at     DateTime     @default(now()) @db.Timestamptz
-  cerrado_at     DateTime?    @db.Timestamptz
+  fondo_inicial  Decimal
+  caja_efectivo  Decimal      @default(0.0000)
+  caja_tarjeta   Decimal      @default(0.0000)
+  caja_cargos    Decimal      @default(0.0000)
+  abierto_at     DateTime     @default(now())
+  cerrado_at     DateTime?
   activo         Boolean      @default(true)
   usuario        Usuario      @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
   area           Area?        @relation(fields: [area_id], references: [id], onDelete: Restrict)
@@ -262,9 +262,9 @@ model Turno {
 model RetiroCaja {
   id          Int      @id @default(autoincrement())
   turno_id    Int
-  monto       Decimal  @db.Decimal(12, 4)
-  motivo      String   @db.Text
-  created_at  DateTime @default(now()) @db.Timestamptz
+  monto       Decimal
+  motivo      String
+  created_at  DateTime @default(now())
   turno       Turno    @relation(fields: [turno_id], references: [id], onDelete: Cascade)
 
   @@map("retiros_caja")
@@ -272,12 +272,12 @@ model RetiroCaja {
 
 model Insumo {
   id           Int                 @id @default(autoincrement())
-  nombre       String              @unique @db.VarChar(100)
-  stock        Decimal             @default(0.0000) @db.Decimal(12, 4)
-  unidad       String              @db.VarChar(20)
-  stock_minimo Decimal             @default(0.0000) @db.Decimal(12, 4)
-  created_at   DateTime            @default(now()) @db.Timestamptz
-  updated_at   DateTime            @default(now()) @updatedAt @db.Timestamptz
+  nombre       String              @unique
+  stock        Decimal             @default(0.0000)
+  unidad       String
+  stock_minimo Decimal             @default(0.0000)
+  created_at   DateTime            @default(now())
+  updated_at   DateTime            @default(now()) @updatedAt
   recetas      RecetaIngrediente[]
 
   @@map("insumos")
@@ -286,7 +286,7 @@ model Insumo {
 model RecetaIngrediente {
   producto_id Int
   insumo_id   Int
-  cantidad    Decimal  @db.Decimal(12, 4)
+  cantidad    Decimal
   producto    Producto @relation(fields: [producto_id], references: [id], onDelete: Cascade)
   insumo      Insumo   @relation(fields: [insumo_id], references: [id], onDelete: Cascade)
 
@@ -296,24 +296,23 @@ model RecetaIngrediente {
 
 model GastoIngresoCCL {
   id             Int      @id @default(autoincrement())
-  fecha          DateTime @db.Date
-  tipo_registro  String   // 'GASTO_FIJO', 'GASTO_VARIABLE', 'GASTO_MATERIAL', 'INGRESO'
+  fecha          DateTime
+  tipo_registro  String
   concepto       String
-  monto          Decimal  @db.Decimal(12, 4)
-  metodo_pago    String   // 'EFECTIVO', 'IZETTLE', 'BANREGIO'
-  created_at     DateTime @default(now()) @db.Timestamptz
+  monto          Decimal
+  metodo_pago    String
+  created_at     DateTime @default(now())
 
   @@map("gastos_ingresos_ccl")
 }
 
 model IdempotencyKey {
-  key             String   @id @db.VarChar(255)
-  status          String   @db.VarChar(20) // 'PROCESSING', 'COMPLETED'
+  key             String   @id
+  status          String
   response_status Int?
-  response_body   String?  @db.Text
-  created_at      DateTime @default(now()) @db.Timestamptz
-  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz
+  response_body   String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @default(now()) @updatedAt
 
   @@map("idempotency_keys")
 }
-
