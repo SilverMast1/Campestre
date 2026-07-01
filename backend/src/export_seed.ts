@@ -34,6 +34,10 @@ import prisma from './db';
 async function main() {
   console.log('Iniciando carga de datos desde seed personalizado...');
 
+  // Desactivar llaves foráneas en SQLite para la limpieza e inserción segura
+  console.log('Desactivando llaves foráneas en SQLite...');
+  await prisma.$executeRawUnsafe('PRAGMA foreign_keys = OFF;');
+
   // Limpiar tablas para evitar duplicados / conflictos de claves primarias
   console.log('Limpiando tablas de base de datos...');
   await prisma.usuarioRole.deleteMany({});
@@ -115,6 +119,10 @@ async function main() {
     data: ${JSON.stringify(recetaIngredientes, null, 2)}
   });
 
+  // Activar llaves foráneas nuevamente
+  console.log('Activando llaves foráneas de nuevo...');
+  await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON;');
+
   console.log('Seed ejecutado con éxito. Se importaron todos los catálogos y stock locales.');
 }
 
@@ -130,7 +138,7 @@ main()
 
   const outputPath = path.join(__dirname, 'seed.ts');
   fs.writeFileSync(outputPath, seedContent);
-  console.log('Archivo seed.ts sobrescrito exitosamente con los datos locales.');
+  console.log('Archivo seed.ts sobrescrito exitosamente con los datos locales y soporte de FK.');
 }
 
 main()
