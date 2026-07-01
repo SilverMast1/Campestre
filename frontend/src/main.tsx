@@ -5,7 +5,15 @@ import './index.css';
 import { useStore } from './store';
 
 // Interceptor global de fetch para manejar la expiración o invalidez de tokens y anteponer la URL base del backend
-const API_URL = (import.meta as any).env?.VITE_API_URL || (window.location.hostname.includes('onrender.com') ? 'https://campestre-backend.onrender.com' : `http://${window.location.hostname}:3001`);
+const isLocalOrTunnel = 
+  window.location.hostname === 'localhost' ||
+  window.location.hostname.startsWith('192.168.') ||
+  window.location.hostname.startsWith('10.') ||
+  window.location.hostname.startsWith('172.') ||
+  window.location.hostname.includes('github.dev') ||
+  window.location.hostname.includes('app.github.dev');
+
+const API_URL = (import.meta as any).env?.VITE_API_URL || (isLocalOrTunnel ? '' : 'https://campestre-backend.onrender.com');
 const { fetch: originalFetch } = window;
 
 window.fetch = async (...args) => {
