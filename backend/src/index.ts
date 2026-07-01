@@ -29,9 +29,36 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
+const isOriginAllowed = (origin: string): boolean => {
+  if (allowedOrigins.includes(origin)) return true;
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname;
+    // Permitir localhost
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+    // Permitir IPs de red local
+    if (
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('172.')
+    ) return true;
+    // Permitir túneles de VS Code
+    if (hostname.endsWith('.github.dev') || hostname.endsWith('.app.github.dev')) return true;
+  } catch (err) {
+    // Si no es una URL válida
+  }
+  return false;
+};
+
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin || isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS socket.io: origen no permitido: ${origin}`));
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true,
   },
@@ -43,7 +70,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({
   origin: (origin, callback) => {
     // Permitir peticiones sin origin (Postman, mobile) o desde orígenes permitidos
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || isOriginAllowed(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`CORS: origen no permitido: ${origin}`));
