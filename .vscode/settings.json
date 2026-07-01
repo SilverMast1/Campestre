@@ -1,0 +1,16 @@
+{
+  "ports.attributes": {
+    "3000": {
+      "label": "Frontend (Vite)",
+      "onAutoForward": "notify",
+      "visibility": "public",
+      "protocol": "https"
+    },
+    "3001": {
+      "label": "Backend (Express API)",
+      "onAutoForward": "notify",
+      "visibility": "public",
+      "protocol": "https"
+    }
+  }
+}

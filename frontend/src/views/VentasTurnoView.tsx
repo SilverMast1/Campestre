@@ -56,7 +56,13 @@ export default function VentasTurnoView() {
     if (!token) return;
     cargarDatos();
 
-    const socket = io('/', { path: '/socket.io' });
+    const socket = io('/', {
+      path: '/socket.io',
+      transports: ['polling', 'websocket'],
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity
+    });
     socket.on('connect', () => {
       console.log('Conectado a sockets desde VentasTurnoView');
     });

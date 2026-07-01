@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
 import { TicketVenta } from '../components/TicketVenta';
 import { ShoppingCart, User, Users, Search, Plus, Minus, Trash2, CreditCard, Check, Sparkles, RefreshCw, Clock, X, Merge } from 'lucide-react';
@@ -23,6 +23,8 @@ export default function POSView() {
     cuentaId,
     setCuentaId,
   } = useStore();
+
+  const socketRef = useRef<any>(null);
 
   const [cadis, setCadis] = useState<any[]>([]);
   const [sociosBusqueda, setSociosBusqueda] = useState<any[]>([]);
@@ -184,7 +186,14 @@ export default function POSView() {
   // Conexión WebSockets
   useEffect(() => {
     if (!token) return;
-    const socket = io('/', { path: '/socket.io' }); // En local asume misma url
+    const socket = io('/', {
+      path: '/socket.io',
+      transports: ['polling', 'websocket'],
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity
+    });
+    socketRef.current = socket;
 
     socket.on('connect', () => {
       console.log('Conectado a WebSockets del POS');
@@ -205,6 +214,7 @@ export default function POSView() {
 
     return () => {
       socket.disconnect();
+      socketRef.current = null;
     };
   }, [areaId, token]);
 
@@ -733,8 +743,9 @@ export default function POSView() {
       const dataConsumos = await resConsumos.json();
       if (!resConsumos.ok) throw new Error(dataConsumos.error || 'Error al guardar consumos');
 
-      const socket = io();
-      socket.emit('cuenta:cambio', { cadi_id: cadiId });
+      if (socketRef.current) {
+        socketRef.current.emit('cuenta:cambio', { cadi_id: cadiId });
+      }
 
       clearCart();
       setSociosSeleccionadosCadi([]);
@@ -911,8 +922,9 @@ export default function POSView() {
       if (!resConsumos.ok) throw new Error(dataConsumos.error || 'Error al guardar consumos');
 
       // 3. Emitir evento de cambio vía sockets
-      const socket = io();
-      socket.emit('cuenta:cambio', { cadi_id: cadiId });
+      if (socketRef.current) {
+        socketRef.current.emit('cuenta:cambio', { cadi_id: cadiId });
+      }
 
       // Cargar previsualización del split
       const resSplit = await fetch(`/api/pos/cuentas/${idCuenta}/split-preview`, {
