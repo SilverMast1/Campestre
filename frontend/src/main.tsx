@@ -5,7 +5,7 @@ import './index.css';
 import { useStore } from './store';
 
 // Interceptor global de fetch para manejar la expiración o invalidez de tokens y anteponer la URL base del backend
-const API_URL = (import.meta as any).env?.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://campestre-backend.onrender.com');
+const API_URL = (import.meta as any).env?.VITE_API_URL || (window.location.hostname.includes('onrender.com') ? 'https://campestre-backend.onrender.com' : `http://${window.location.hostname}:3001`);
 const { fetch: originalFetch } = window;
 
 window.fetch = async (...args) => {
