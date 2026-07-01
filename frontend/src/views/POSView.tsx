@@ -38,6 +38,7 @@ export default function POSView() {
   const [pagoExitoso, setPagoExitoso] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [metodoPagoDirecto, setMetodoPagoDirecto] = useState<string>('EFECTIVO');
+  const [montoRecibido, setMontoRecibido] = useState<string>('');
 
   // Simulador de Escaneo QR
   const [simularQrToken, setSimularQrToken] = useState('');
@@ -1864,6 +1865,12 @@ export default function POSView() {
             )}
           </div>
 
+          {errorMsg && !mostrarModalCobro && !mostrarModalFusion && !mostrarModalIniciarRonda && (
+            <div className="mx-6 mt-4 bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-4 py-2.5 rounded-xl text-center">
+              {errorMsg}
+            </div>
+          )}
+
           {/* Lista del Carrito */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4 max-h-[300px]">
             {cart.length === 0 ? (
@@ -2291,6 +2298,37 @@ export default function POSView() {
                     </button>
                   </div>
                 </div>
+
+                {metodoPagoDirecto === 'EFECTIVO' && (
+                  <div className="p-4 bg-slate-900 border border-emerald-500/20 rounded-2xl space-y-3">
+                    <div className="flex flex-col space-y-1">
+                      <label className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Monto Recibido</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                        <input
+                          type="number"
+                          value={montoRecibido}
+                          onChange={(e) => setMontoRecibido(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 pl-7 pr-3 text-white font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                    {montoRecibido && Number(montoRecibido) >= totalMasAdeudos && (
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+                        <span className="text-xs text-slate-400 font-bold">Cambio a entregar:</span>
+                        <span className="text-lg font-extrabold text-emerald-400">
+                          ${(Number(montoRecibido) - totalMasAdeudos).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    {montoRecibido && Number(montoRecibido) > 0 && Number(montoRecibido) < totalMasAdeudos && (
+                      <div className="text-right">
+                        <span className="text-[10px] text-red-400 font-bold">Monto insuficiente</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Adeudo Info y Opción de Cobro en Modo Directo */}
                 {Object.keys(deudasSocios).map((key) => {
