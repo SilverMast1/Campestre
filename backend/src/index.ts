@@ -217,6 +217,6 @@ io.on('connection', (socket) => {
 app.set('io', io);
 
 // Arrancar servidor
-server.listen(PORT, () => {
+server.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Servidor backend corriendo en el puerto ${PORT}`);
 });
