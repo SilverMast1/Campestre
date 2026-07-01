@@ -11,7 +11,8 @@ const isLocalOrTunnel =
   window.location.hostname.startsWith('10.') ||
   window.location.hostname.startsWith('172.') ||
   window.location.hostname.includes('github.dev') ||
-  window.location.hostname.includes('app.github.dev');
+  window.location.hostname.includes('app.github.dev') ||
+  window.location.hostname.includes('devtunnels.ms');
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || (isLocalOrTunnel ? '' : 'https://campestre-backend.onrender.com');
 const { fetch: originalFetch } = window;
