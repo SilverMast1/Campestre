@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 
 async function run() {
   const prods = await prisma.producto.findMany({
-    where: { nombre: { contains: 'taco', mode: 'insensitive' } }
+    where: { nombre: { contains: 'taco' } }
   });
   console.log("Found products:", prods.map(p => p.nombre));
 

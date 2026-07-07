@@ -22,6 +22,7 @@ interface CartItem {
   cantidad: number;
   categoria?: string;
   precio_unitario?: number;
+  notas?: string;
 }
 
 interface POSState {
@@ -49,6 +50,7 @@ interface POSState {
   addToCart: (producto: any) => void;
   removeFromCart: (productoId: number | string) => void;
   updateCartQuantity: (productoId: number | string, cantidad: number) => void;
+  updateCartNotes: (productoId: number | string, notas: string) => void;
   clearCart: () => void;
   setCuentaId: (id: number | null) => void;
   setCuentaDetalle: (detalle: any | null) => void;
@@ -129,6 +131,12 @@ export const useStore = create<POSState>((set) => ({
   updateCartQuantity: (productoId, cantidad) => set((state) => ({
     cart: state.cart.map((item) =>
       item.id === productoId ? { ...item, cantidad: Math.max(0.01, cantidad) } : item
+    ),
+  })),
+
+  updateCartNotes: (productoId, notas) => set((state) => ({
+    cart: state.cart.map((item) =>
+      item.id === productoId ? { ...item, notas } : item
     ),
   })),
 

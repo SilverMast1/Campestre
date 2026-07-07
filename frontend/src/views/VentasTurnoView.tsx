@@ -130,6 +130,10 @@ export default function VentasTurnoView() {
         if (c.metodo_pago === 'EFECTIVO') efectivo += c.total;
         else if (c.metodo_pago === 'TARJETA') tarjeta += c.total;
         else if (c.metodo_pago === 'CARGO_SOCIO') cargosSocio += c.total;
+        else if (c.metodo_pago === 'MIXTO') {
+          efectivo += c.monto_efectivo || 0;
+          tarjeta += c.monto_tarjeta || 0;
+        }
       }
     });
 
@@ -403,10 +407,14 @@ export default function VentasTurnoView() {
                       <span>Cobro Directo</span>
                       <span className={`font-bold px-1.5 py-0.5 rounded text-[8px] ${
                         cta.metodo_pago === 'EFECTIVO' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                        cta.metodo_pago === 'TARJETA' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                        cta.metodo_pago === 'TARJETA' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                        cta.metodo_pago === 'MIXTO' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
                         'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
                       }`}>
-                        {cta.metodo_pago} (${cta.total.toFixed(2)})
+                        {cta.metodo_pago === 'MIXTO'
+                          ? `Mixto (EF: $${(cta.monto_efectivo || 0).toFixed(2)}, TJ: $${(cta.monto_tarjeta || 0).toFixed(2)})`
+                          : `${cta.metodo_pago} ($${cta.total.toFixed(2)})`
+                        }
                       </span>
                     </div>
                   )}

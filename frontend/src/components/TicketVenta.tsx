@@ -40,11 +40,16 @@ export const TicketVenta: React.FC<TicketVentaProps> = ({ cuenta, areaNombre, ca
         </thead>
         <tbody>
           {cuenta.detalleCuentas?.map((item: any) => (
-            <tr key={item.id}>
-              <td className="py-1 align-top">{Number(item.cantidad)}</td>
-              <td className="py-1 align-top pr-1">{item.producto?.nombre}</td>
-              <td className="py-1 align-top text-right">${(Number(item.cantidad) * Number(item.precio_unitario)).toFixed(2)}</td>
-            </tr>
+            <React.Fragment key={item.id}>
+              <tr>
+                <td className="py-1 align-top">{Number(item.cantidad)}</td>
+                <td className="py-1 align-top pr-1">
+                  <div>{item.producto?.nombre}</div>
+                  {item.notas && <div className="text-[9px] text-gray-700 italic mt-0.5">*{item.notas}</div>}
+                </td>
+                <td className="py-1 align-top text-right">${(Number(item.cantidad) * Number(item.precio_unitario)).toFixed(2)}</td>
+              </tr>
+            </React.Fragment>
           ))}
         </tbody>
       </table>

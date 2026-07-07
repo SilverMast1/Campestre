@@ -6,7 +6,7 @@ async function main() {
   
   // Buscar si ya existe
   const existente = await prisma.producto.findFirst({
-    where: { nombre: { equals: 'Agua Mineral Grande', mode: 'insensitive' } }
+    where: { nombre: { equals: 'Agua Mineral Grande' } }
   });
 
   if (existente) {

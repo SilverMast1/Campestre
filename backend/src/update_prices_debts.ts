@@ -94,8 +94,7 @@ async function main() {
     const prods = await prisma.producto.findMany({
       where: {
         nombre: {
-          equals: item.nombre,
-          mode: 'insensitive'
+          equals: item.nombre
         }
       }
     });
@@ -177,8 +176,7 @@ async function main() {
     let cliente = await prisma.cliente.findFirst({
       where: {
         nombre: {
-          equals: deuda.nombre,
-          mode: 'insensitive'
+          equals: deuda.nombre
         }
       }
     });

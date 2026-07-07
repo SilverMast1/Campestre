@@ -79,7 +79,6 @@ export async function loginCliente(req: AuthenticatedRequest, res: Response) {
       where: {
         nombre: {
           equals: nombre,
-          mode: 'insensitive' // Búsqueda insensible a mayúsculas/minúsculas
         }
       },
     });
@@ -147,7 +146,7 @@ export async function crearClientePorStaff(req: AuthenticatedRequest, res: Respo
     const nuevoCliente = await prisma.cliente.create({
       data: {
         codigo_socio,
-        nombre,
+        nombre: nombre.trim().toUpperCase(),
         email: email || null,
         telefono: telefono || null,
         qr_token: qrToken,
@@ -182,7 +181,7 @@ export async function buscarSociosPublico(req: Request, res: Response) {
     const socios = await prisma.cliente.findMany({
       where: {
         activo: true,
-        nombre: { contains: query, mode: 'insensitive' },
+        nombre: { contains: query },
       },
       select: {
         id: true,

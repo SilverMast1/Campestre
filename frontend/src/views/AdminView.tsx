@@ -215,6 +215,7 @@ export default function AdminView() {
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [cargandoCuentas, setCargandoCuentas] = useState(false);
   const [mostrarConfirmReset, setMostrarConfirmReset] = useState(false);
+  const [ocultarPagadas, setOcultarPagadas] = useState(false);
 
   // Turno / Corte de Caja
   const [turnoData, setTurnoData] = useState<any>(null);
@@ -254,7 +255,7 @@ export default function AdminView() {
   const [editSocioTelefono, setEditSocioTelefono] = useState('');
 
   // Reportes
-  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'cortes_finales' | 'usuarios' | 'cclourdes'>('gestion');
+  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'cortes_finales' | 'usuarios' | 'cclourdes' | 'backups'>('gestion');
 
   // Reporte Semanal CCLourdes
   const [fechaSemanalGastos, setFechaSemanalGastos] = useState(() => {
@@ -304,6 +305,10 @@ export default function AdminView() {
   const [editEmail, setEditEmail] = useState('');
   const [editRole, setEditRole] = useState('VENDEDOR');
 
+  // Gestión de Respaldos (Backups)
+  const [backupsLista, setBackupsLista] = useState<any[]>([]);
+  const [cargandoBackups, setCargandoBackups] = useState(false);
+
   useEffect(() => {
     if (token) {
       cargarSociosLista();
@@ -316,9 +321,70 @@ export default function AdminView() {
         cargarReporteCortes();
         cargarUsuariosLista();
         cargarReporteSemanalGastos(fechaSemanalGastos);
+        cargarBackups();
       }
     }
   }, [token, esAdmin]);
+
+  const cargarBackups = async () => {
+    setCargandoBackups(true);
+    try {
+      const res = await fetch('/api/admin/backups', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) setBackupsLista(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCargandoBackups(false);
+    }
+  };
+
+  const handleCrearBackup = async () => {
+    setError(''); setSuccess('');
+    setCargandoBackups(true);
+    try {
+      const res = await fetch('/api/admin/backups/crear', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al crear el respaldo');
+      setSuccess('Respaldo creado con éxito.');
+      cargarBackups();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCargandoBackups(false);
+    }
+  };
+
+  const handleRestaurarBackup = async (nombreArchivo: string) => {
+    if (!window.confirm(`¿Estás seguro de restaurar el respaldo "${nombreArchivo}"? Esta acción reemplazará la base de datos actual.`)) {
+      return;
+    }
+    setError(''); setSuccess('');
+    setCargandoBackups(true);
+    try {
+      const res = await fetch('/api/admin/backups/restaurar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ nombreArchivo })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al restaurar el respaldo');
+      setSuccess('Respaldo restaurado con éxito. Se recomienda recargar la página.');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCargandoBackups(false);
+    }
+  };
 
   const cargarUsuariosLista = async () => {
     setCargandoUsuarios(true);
@@ -1031,6 +1097,23 @@ export default function AdminView() {
             Gestión de Personal/Vendedores
           </button>
         )}
+        {esAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              setSeccionActiva('backups');
+              cargarBackups();
+            }}
+            className={`flex items-center gap-2 px-5 py-2.5 text-xs font-semibold rounded-xl transition-all ${
+              seccionActiva === 'backups'
+                ? 'bg-slate-700 text-white shadow-lg shadow-slate-700/10'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <RotateCcw size={14} className={cargandoBackups ? 'animate-spin' : ''} />
+            Copias de Seguridad (Backups)
+          </button>
+        )}
       </div>
 
       {seccionActiva === 'gestion' ? (
@@ -1423,6 +1506,17 @@ export default function AdminView() {
             <span>💳 Cuentas y Adeudos de Socios</span>
           </h3>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setOcultarPagadas(!ocultarPagadas)}
+              className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-xs font-bold transition-colors ${
+                ocultarPagadas
+                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500/20'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+              }`}
+            >
+              <span>{ocultarPagadas ? '👁️ Mostrar Cuentas Pagadas' : '👁️‍🗨️ Ocultar Cuentas Pagadas'}</span>
+            </button>
             <button onClick={cargarCuentas}
               className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors"
               title="Recargar cuentas"
@@ -1440,75 +1534,83 @@ export default function AdminView() {
           </div>
         </div>
 
-        {cuentas.length === 0 && !cargandoCuentas ? (
-          <div className="text-center py-10 text-slate-500">
-            <Receipt className="mx-auto mb-3 opacity-30" size={32} />
-            <p className="text-sm">No hay cuentas registradas.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="px-4 py-3">ID</th>
-                  <th className="px-4 py-3">Área / Ref.</th>
-                  <th className="px-4 py-3">Socios / Cargos</th>
-                  <th className="px-4 py-3 text-center">Total</th>
-                  <th className="px-4 py-3 text-center">Estado</th>
-                  <th className="px-4 py-3 text-center">Fecha</th>
-                  <th className="px-4 py-3 text-center">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {cuentas.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="px-4 py-3 font-mono text-slate-400 text-[10px]">#{c.id.slice(-6)}</td>
-                    <td className="px-4 py-3">
-                      <span className="text-white font-bold block">{c.area}</span>
-                      <span className="text-[10px] text-slate-400">{c.referencia}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.divisiones.length > 0 ? (
-                        <div className="space-y-0.5">
-                          {c.divisiones.map((d: any, i: number) => (
-                            <div key={i} className="text-[10px]">
-                              <span className="text-white font-medium">{d.cliente}</span>
-                              <span className="text-slate-400 ml-1">${d.monto.toFixed(2)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-slate-500 text-[10px] italic">Sin socios</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center font-extrabold text-yellow-400">${c.total.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
-                        c.estado === 'PAGADA' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
-                        : c.estado === 'ABIERTA' ? 'bg-blue-500/10 text-blue-400 border-blue-500/25'
-                        : 'bg-slate-700 text-slate-400 border-slate-600'}`}>
-                        {c.estado}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center text-slate-400 text-[10px]">
-                      {new Date(c.fecha).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleEliminarCuenta(c.id)}
-                        className="flex items-center gap-1 mx-auto px-3 py-1.5 bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300 rounded-lg text-[10px] font-bold border border-red-500/20 transition-colors"
-                      >
-                        <Trash2 size={11} />
-                        Eliminar
-                      </button>
-                    </td>
+        {(() => {
+          const cuentasFiltradas = ocultarPagadas ? cuentas.filter(c => c.estado !== 'PAGADA') : cuentas;
+
+          if (cuentasFiltradas.length === 0 && !cargandoCuentas) {
+            return (
+              <div className="text-center py-10 text-slate-500">
+                <Receipt className="mx-auto mb-3 opacity-30" size={32} />
+                <p className="text-sm">No hay cuentas registradas o que coincidan con el filtro.</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left text-slate-300">
+                <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                  <tr>
+                    <th className="px-4 py-3">ID</th>
+                    <th className="px-4 py-3">Área / Ref.</th>
+                    <th className="px-4 py-3">Socios / Cargos</th>
+                    <th className="px-4 py-3 text-center">Total</th>
+                    <th className="px-4 py-3 text-center">Estado</th>
+                    <th className="px-4 py-3 text-center">Fecha</th>
+                    <th className="px-4 py-3 text-center">Acción</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {cuentasFiltradas.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-3 font-mono text-slate-400 text-[10px]">#{c.id.slice(-6)}</td>
+                      <td className="px-4 py-3">
+                        <span className="text-white font-bold block">{c.area}</span>
+                        <span className="text-[10px] text-slate-400">{c.referencia}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.divisiones.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {c.divisiones.map((d: any, i: number) => (
+                              <div key={i} className="text-[10px]">
+                                <span className="text-white font-medium">{d.cliente}</span>
+                                <span className="text-slate-400 ml-1">${d.monto.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 text-[10px] italic">Sin socios</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center font-extrabold text-yellow-400">${c.total.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
+                          c.estado === 'PAGADA' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                          : c.estado === 'ABIERTA' ? 'bg-blue-500/10 text-blue-400 border-blue-500/25'
+                          : 'bg-slate-700 text-slate-400 border-slate-600'}`}>
+                          {c.estado}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center text-slate-400 text-[10px]">
+                        {new Date(c.fecha).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleEliminarCuenta(c.id)}
+                          className="flex items-center gap-1 mx-auto px-3 py-1.5 bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300 rounded-lg text-[10px] font-bold border border-red-500/20 transition-colors"
+                        >
+                          <Trash2 size={11} />
+                          Eliminar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
             </>
           )}
@@ -2231,7 +2333,7 @@ export default function AdminView() {
             </div>
           )}
         </div>
-      ) : (
+      ) : seccionActiva === 'cclourdes' ? (
         <div className="space-y-6">
           {/* Header of Reporte CCLourdes */}
           <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
@@ -2516,7 +2618,92 @@ export default function AdminView() {
             </div>
           )}
         </div>
-      )}
+      ) : seccionActiva === 'backups' ? (
+        <div className="space-y-6">
+          <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-4">
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2 text-white font-sans">
+                  <RotateCcw className="text-slate-400" size={20} />
+                  <span>Copias de Seguridad de la Base de Datos (Backups)</span>
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Crea respaldos completos del sistema actual o restaura archivos de base de datos anteriores (.db).
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={cargarBackups}
+                  disabled={cargandoBackups}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5"
+                >
+                  <RefreshCw size={12} className={cargandoBackups ? 'animate-spin' : ''} />
+                  Actualizar Lista
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCrearBackup}
+                  disabled={cargandoBackups}
+                  className="px-4 py-2 bg-campestre-green hover:bg-campestre-green/90 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-campestre-green/10"
+                >
+                  <span>➕</span>
+                  Crear Nueva Copia
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
+            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 border-b border-slate-800 pb-3">
+              <span>🗄️</span>
+              <span>Respaldos Disponibles</span>
+            </h4>
+
+            {backupsLista.length === 0 ? (
+              <p className="text-slate-500 text-sm text-center py-8">
+                No hay copias de seguridad creadas en la carpeta de respaldos.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-355">
+                  <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="px-4 py-3">Nombre del Archivo</th>
+                      <th className="px-4 py-3">Fecha de Modificación</th>
+                      <th className="px-4 py-3">Tamaño</th>
+                      <th className="px-4 py-3 text-center">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {backupsLista.map((b, idx) => (
+                      <tr key={idx} className="hover:bg-slate-800/20">
+                        <td className="px-4 py-3 text-white font-mono font-medium">{b.nombre}</td>
+                        <td className="px-4 py-3 text-slate-400">
+                          {new Date(b.fecha).toLocaleString('es-MX')}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-300">
+                          {(b.tamano / (1024 * 1024)).toFixed(2)} MB
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleRestaurarBackup(b.nombre)}
+                            disabled={cargandoBackups}
+                            className="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 hover:border-amber-550/40 text-amber-400 rounded-lg text-[10px] font-bold transition-all"
+                          >
+                            🔄 Restaurar Base de Datos
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {/* ===== MODAL CONFIRMAR RESET ===== */}
       {mostrarConfirmReset && (

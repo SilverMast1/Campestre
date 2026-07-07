@@ -114,7 +114,7 @@ model InventarioArea {
 }
 
 model MovimientoInventario {
-  id              BigInt   @id @default(autoincrement())
+  id              Int   @id @default(autoincrement())
   area_id         Int
   producto_id     Int
   tipo_movimiento String
@@ -180,7 +180,7 @@ model AsignacionCadiCliente {
 }
 
 model Cuenta {
-  id                BigInt          @id @default(autoincrement())
+  id                Int          @id @default(autoincrement())
   area_id           Int
   usuario_id        Int
   cadi_id           Int?
@@ -192,6 +192,8 @@ model Cuenta {
   descuento         Decimal         @default(0.0000)
   total             Decimal         @default(0.0000)
   metodo_pago       String?
+  monto_efectivo    Decimal         @default(0.0000)
+  monto_tarjeta     Decimal         @default(0.0000)
   created_at        DateTime        @default(now())
   closed_at         DateTime?
   turno_id          Int?
@@ -207,8 +209,8 @@ model Cuenta {
 }
 
 model DetalleCuenta {
-  id              BigInt   @id @default(autoincrement())
-  cuenta_id       BigInt
+  id              Int   @id @default(autoincrement())
+  cuenta_id       Int
   producto_id     Int
   cantidad        Decimal
   precio_unitario Decimal
@@ -217,6 +219,7 @@ model DetalleCuenta {
   impuestos       Decimal  @default(0.0000)
   total           Decimal
   estado_item     String   @default("PEDIDO")
+  notas           String?
   created_at      DateTime @default(now())
   cuenta          Cuenta   @relation(fields: [cuenta_id], references: [id], onDelete: Cascade)
   producto        Producto @relation(fields: [producto_id], references: [id], onDelete: Restrict)
@@ -225,12 +228,14 @@ model DetalleCuenta {
 }
 
 model DivisionCuenta {
-  id                       BigInt    @id @default(autoincrement())
-  cuenta_id                BigInt
+  id                       Int    @id @default(autoincrement())
+  cuenta_id                Int
   cliente_id               Int
   porcentaje_participacion Decimal
   monto_proporcional       Decimal
   metodo_pago              String?
+  monto_efectivo           Decimal   @default(0.0000)
+  monto_tarjeta            Decimal   @default(0.0000)
   estado_pago              String    @default("PENDIENTE")
   pagado_at                DateTime?
   cuenta                   Cuenta    @relation(fields: [cuenta_id], references: [id], onDelete: Restrict)

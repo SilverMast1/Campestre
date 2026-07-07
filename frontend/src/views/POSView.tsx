@@ -15,6 +15,7 @@ export default function POSView() {
     addToCart,
     removeFromCart,
     updateCartQuantity,
+    updateCartNotes,
     clearCart,
     cadiId,
     setCadiId,
@@ -25,8 +26,10 @@ export default function POSView() {
   } = useStore();
 
   const socketRef = useRef<any>(null);
+  const inputMezcladorRef = useRef<HTMLInputElement>(null);
 
   const [cadis, setCadis] = useState<any[]>([]);
+  const [animacionesCarrito, setAnimacionesCarrito] = useState<{ id: number; x: number; y: number }[]>([]);
   const [sociosBusqueda, setSociosBusqueda] = useState<any[]>([]);
   const [busquedaTexto, setBusquedaTexto] = useState('');
   const [sociosSeleccionadosCadi, setSociosSeleccionadosCadi] = useState<any[]>([]);
@@ -41,6 +44,12 @@ export default function POSView() {
   const [errorMsg, setErrorMsg] = useState('');
   const [metodoPagoDirecto, setMetodoPagoDirecto] = useState<string>('EFECTIVO');
   const [montoRecibido, setMontoRecibido] = useState<string>('');
+  const [montoEfectivoMixto, setMontoEfectivoMixto] = useState<string>('');
+  const [montoTarjetaMixto, setMontoTarjetaMixto] = useState<string>('');
+  const [abonoMonto, setAbonoMonto] = useState<string>('');
+  const [metodoPagoAbono, setMetodoPagoAbono] = useState<string>('EFECTIVO');
+  const [montoEfectivoMixtoSocio, setMontoEfectivoMixtoSocio] = useState<{ [clienteId: number]: string }>({});
+  const [montoTarjetaMixtoSocio, setMontoTarjetaMixtoSocio] = useState<{ [clienteId: number]: string }>({});
 
   // Simulador de Escaneo QR
   const [simularQrToken, setSimularQrToken] = useState('');
@@ -110,6 +119,14 @@ export default function POSView() {
   const [mostrarModalMezclador, setMostrarModalMezclador] = useState(false);
   const [productoPreparadoSeleccionado, setProductoPreparadoSeleccionado] = useState<any | null>(null);
   const [busquedaMezclador, setBusquedaMezclador] = useState('');
+
+  useEffect(() => {
+    if (mostrarModalMezclador) {
+      setTimeout(() => {
+        inputMezcladorRef.current?.focus();
+      }, 100);
+    }
+  }, [mostrarModalMezclador]);
   const [editingQty, setEditingQty] = useState<{ [id: string]: string }>({});
 
   useEffect(() => {
@@ -600,6 +617,7 @@ export default function POSView() {
       precio_venta: p.precio_venta,
       cantidad: p.cantidad,
       categoria: p.categoria,
+      notas: p.notas || '',
     }));
 
     useStore.setState({
@@ -724,6 +742,7 @@ export default function POSView() {
         producto_id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
         cantidad: item.cantidad,
         precio_unitario: item.precio_unitario !== undefined ? item.precio_unitario : item.precio_venta,
+        notas: item.notas || null,
       }));
 
       const resConsumos = await fetch(`/api/pos/cuentas/${idCuenta}/consumos`, {
@@ -902,6 +921,7 @@ export default function POSView() {
         producto_id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
         cantidad: item.cantidad,
         precio_unitario: item.precio_unitario !== undefined ? item.precio_unitario : item.precio_venta,
+        notas: item.notas || null,
       }));
 
       const resConsumos = await fetch(`/api/pos/cuentas/${idCuenta}/consumos`, {
@@ -994,13 +1014,24 @@ export default function POSView() {
     }
 
     try {
+      const bodyObj: any = { metodo_pago: metodoPagoDirecto };
+      if (metodoPagoDirecto === 'MIXTO') {
+        const ef = Number(montoEfectivoMixto || 0);
+        const tj = Number(montoTarjetaMixto || 0);
+        if (Math.abs((ef + tj) - totalMasAdeudos) > 0.01) {
+          throw new Error(`La suma de efectivo ($${ef.toFixed(2)}) y tarjeta ($${tj.toFixed(2)}) debe coincidir con el total de la cuenta ($${totalMasAdeudos.toFixed(2)})`);
+        }
+        bodyObj.monto_efectivo = ef;
+        bodyObj.monto_tarjeta = tj;
+      }
+
       const response = await fetch(`/api/pos/cuentas/${cuentaId}/pagar`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ metodo_pago: metodoPagoDirecto }),
+        body: JSON.stringify(bodyObj),
       });
 
       const data = await response.json();
@@ -1063,11 +1094,41 @@ export default function POSView() {
     setErrorMsg('');
 
     try {
-      const payloadPagos = splitPreview.divisiones.map((d: any) => ({
-        cliente_id: d.cliente_id,
-        monto: d.monto,
-        metodo_pago: metodosPago[d.cliente_id] || 'CARGO_SOCIO',
-      }));
+      let bodyObj: any = {};
+      const singleDiv = splitPreview.divisiones.length === 1 ? splitPreview.divisiones[0] : null;
+
+      if (singleDiv && abonoMonto && Number(abonoMonto) > 0) {
+        if (metodoPagoAbono === 'MIXTO') {
+          bodyObj = {
+            abono: Number(abonoMonto),
+            cliente_id: singleDiv.cliente_id,
+            metodo_pago: 'MIXTO',
+            monto_efectivo: Number(montoEfectivoMixto || 0),
+            monto_tarjeta: Number(montoTarjetaMixto || 0)
+          };
+        } else {
+          bodyObj = {
+            abono: Number(abonoMonto),
+            cliente_id: singleDiv.cliente_id,
+            metodo_pago: metodoPagoAbono || 'EFECTIVO'
+          };
+        }
+      } else {
+        const payloadPagos = splitPreview.divisiones.map((d: any) => {
+          const met = metodosPago[d.cliente_id] || 'CARGO_SOCIO';
+          const pObj: any = {
+            cliente_id: d.cliente_id,
+            monto: d.monto,
+            metodo_pago: met,
+          };
+          if (met === 'MIXTO') {
+            pObj.monto_efectivo = Number(montoEfectivoMixtoSocio[d.cliente_id] || 0);
+            pObj.monto_tarjeta = Number(montoTarjetaMixtoSocio[d.cliente_id] || 0);
+          }
+          return pObj;
+        });
+        bodyObj = { pagos: payloadPagos };
+      }
 
       const response = await fetch(`/api/pos/cuentas/${cuentaId}/pagar`, {
         method: 'POST',
@@ -1075,7 +1136,7 @@ export default function POSView() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ pagos: payloadPagos }),
+        body: JSON.stringify(bodyObj),
       });
 
       const data = await response.json();
@@ -1130,16 +1191,41 @@ export default function POSView() {
     }
   };
 
-  const handleAgregarProductoAlCarrito = (prod: any) => {
-    const nombreLower = prod.nombre.toLowerCase();
-    const esPreparada = nombreLower.includes('prep') || nombreLower.includes('clamato');
+  const handleAgregarProductoAlCarrito = (prod: any, e?: React.MouseEvent) => {
+    let productoAMapear = prod;
+    const nombreLower = prod.nombre.toLowerCase().trim();
     
+    // Mapear automáticamente comida sencilla a versión con papas
+    if (nombreLower === 'cheeseburger') {
+      const conPapas = productos.find(p => p.nombre.toLowerCase().trim() === 'cheeseburger con papas');
+      if (conPapas) productoAMapear = conPapas;
+    } else if (nombreLower === 'hot dog') {
+      const conPapas = productos.find(p => p.nombre.toLowerCase().trim() === 'hot dog con papas');
+      if (conPapas) productoAMapear = conPapas;
+    } else if (nombreLower === 'boneless') {
+      const conPapas = productos.find(p => p.nombre.toLowerCase().trim() === 'boneless con papas');
+      if (conPapas) productoAMapear = conPapas;
+    }
+
+    const nombreAMapearLower = productoAMapear.nombre.toLowerCase();
+    const esPreparada = nombreAMapearLower.includes('prep') || nombreAMapearLower.includes('clamato');
+    
+    if (e) {
+      const x = e.clientX;
+      const y = e.clientY;
+      const id = Date.now() + Math.random();
+      setAnimacionesCarrito(prev => [...prev, { id, x, y }]);
+      setTimeout(() => {
+        setAnimacionesCarrito(prev => prev.filter(anim => anim.id !== id));
+      }, 850);
+    }
+
     if (esPreparada) {
-      setProductoPreparadoSeleccionado(prod);
+      setProductoPreparadoSeleccionado(productoAMapear);
       setBusquedaMezclador('');
       setMostrarModalMezclador(true);
     } else {
-      addToCart(prod);
+      addToCart(productoAMapear);
     }
   };
 
@@ -1149,13 +1235,20 @@ export default function POSView() {
     // Agregar la bebida preparada
     addToCart(productoPreparadoSeleccionado);
     
-    // Agregar el mezclador con precio 0 y un ID único
+    // Solo el agua mineral, agua natural o refrescos (categoría 'bebidas') no se cobran. Cervezas y licores/alcoholes sí.
+    const esGratis = mezclador.nombre.toLowerCase().includes('agua mineral') ||
+                     mezclador.nombre.toLowerCase().includes('agua natural') ||
+                     mezclador.categoria?.toLowerCase() === 'bebidas';
+                     
+    const precio = esGratis ? 0 : Number(mezclador.precio_venta);
+    
+    // Agregar el mezclador con el precio correspondiente y un ID único
     const mezcladorModificado = {
       ...mezclador,
       id: `${mezclador.id}-mixer`,
-      nombre: `${mezclador.nombre} (Mezclador)`,
-      precio_venta: 0,
-      precio_unitario: 0,
+      nombre: esGratis ? `${mezclador.nombre} (Mezclador - Gratis)` : `${mezclador.nombre} (Mezclador)`,
+      precio_venta: precio,
+      precio_unitario: precio,
     };
     addToCart(mezcladorModificado);
     
@@ -1171,6 +1264,35 @@ export default function POSView() {
     setMostrarModalMezclador(false);
     setProductoPreparadoSeleccionado(null);
     setBusquedaMezclador('');
+  };
+
+  const handleEliminarCuenta = async (id: number) => {
+    if (!window.confirm('¿Seguro que deseas eliminar esta cuenta? Los productos se devolverán al inventario y esta acción no se puede deshacer.')) return;
+    setCargando(true);
+    try {
+      const res = await fetch(`/api/admin/cuentas/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al eliminar la cuenta');
+      
+      if (cuentaId === id) {
+        clearCart();
+        setCuentaId(null);
+        setNombreReferencia('');
+        setCadiId(null);
+      }
+      
+      cargarCuentasPendientes();
+      if (areaId) cargarProductos(areaId);
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    } finally {
+      setCargando(false);
+    }
   };
 
   // Verificar si hay algún item de descuento en el carrito
@@ -1259,6 +1381,34 @@ export default function POSView() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 font-sans">
+      <style>{`
+        @keyframes floatFadeCart {
+          0% {
+            transform: translate(-50%, -50%) scale(1) translateY(0);
+            opacity: 1;
+          }
+          100% {
+            transform: translate(-50%, -50%) scale(1.4) translateY(-90px);
+            opacity: 0;
+          }
+        }
+        .animate-float-fade-cart {
+          animation: floatFadeCart 0.75s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        }
+      `}</style>
+
+      {/* Animaciones flotantes de "+1 🛒" */}
+      {animacionesCarrito.map((anim) => (
+        <span
+          key={anim.id}
+          style={{ left: anim.x, top: anim.y }}
+          className="fixed pointer-events-none text-emerald-400 text-xs font-extrabold Outfit z-[9999] animate-float-fade-cart bg-slate-950/90 border border-emerald-500/30 px-2 py-1 rounded-full shadow-lg shadow-emerald-500/25 flex items-center gap-1"
+        >
+          <span>+1</span>
+          <span>🛒</span>
+        </span>
+      ))}
+
       {/* ===== TICKET DE VENTA (OCULTO, SOLO PARA IMPRESIÓN) ===== */}
       <div className="hidden print:block">
         <TicketVenta 
@@ -1492,7 +1642,7 @@ export default function POSView() {
                         <button
                           key={prod.id}
                           disabled={sinStock}
-                          onClick={() => handleAgregarProductoAlCarrito(prod)}
+                          onClick={(e) => handleAgregarProductoAlCarrito(prod, e)}
                           className={`glass-card rounded-2xl p-4 border text-left flex flex-col justify-between transition-all duration-300 relative group overflow-hidden border-slate-800 hover:border-campestre-green/50 active:scale-[0.98]`}
                         >
                           <div className="absolute inset-0 bg-campestre-green/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
@@ -1536,7 +1686,7 @@ export default function POSView() {
                               <button
                                 key={prod.id}
                                 disabled={sinStock}
-                                onClick={() => handleAgregarProductoAlCarrito(prod)}
+                                onClick={(e) => handleAgregarProductoAlCarrito(prod, e)}
                                 className={`glass-card rounded-2xl p-4 border text-left flex flex-col justify-between transition-all duration-300 relative group overflow-hidden border-slate-900 cursor-not-allowed`}
                               >
                                 <div className="absolute inset-0 bg-campestre-green/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
@@ -1686,6 +1836,13 @@ export default function POSView() {
                         className="px-2.5 py-1.5 bg-campestre-green hover:bg-campestre-green/90 text-white rounded-lg font-bold flex items-center gap-1 transition-colors"
                       >
                         Pagar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEliminarCuenta(cta.id)}
+                        className="px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg font-bold border border-red-500/25 flex items-center gap-1 transition-colors"
+                      >
+                        Borrar
                       </button>
                     </div>
                   </div>
@@ -1898,7 +2055,16 @@ export default function POSView() {
                     {item.categoria?.toLowerCase() === 'descuentos' ? (
                       <span className="text-xs text-emerald-400 font-bold mt-0.5 block">Aplicado (-${descuentoLocal.toFixed(2)})</span>
                     ) : (
-                      <p className="text-xs text-campestre-gold font-medium mt-0.5">${item.precio_venta.toFixed(2)} c/u</p>
+                      <div className="flex flex-col space-y-1 mt-1">
+                        <span className="text-xs text-campestre-gold font-medium">${item.precio_venta.toFixed(2)} c/u</span>
+                        <input
+                          type="text"
+                          value={item.notas || ''}
+                          onChange={(e) => updateCartNotes(item.id, e.target.value)}
+                          placeholder="Nota (ej: sin cebolla)..."
+                          className="w-full bg-slate-900/50 border border-slate-800 rounded px-2 py-0.5 text-[10px] text-slate-300 placeholder:text-slate-600 focus:border-purple-500/50 outline-none"
+                        />
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center space-x-2.5">
@@ -2208,9 +2374,63 @@ export default function POSView() {
                               <option value="CARGO_SOCIO">Cargo a Socio</option>
                               <option value="TARJETA">Tarjeta Cred/Deb</option>
                               <option value="EFECTIVO">Efectivo</option>
+                              <option value="MIXTO">Mixto</option>
                             </select>
                           </div>
                         </div>
+
+                        {metodosPago[d.cliente_id] === 'MIXTO' && (
+                          <div className="mt-2.5 p-3 bg-slate-900 border border-purple-500/20 rounded-xl space-y-2.5">
+                            <div className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">Desglose Pago Mixto</div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-bold block mb-1">Monto Efectivo</label>
+                                <div className="relative">
+                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs">$</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={montoEfectivoMixtoSocio[d.cliente_id] || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setMontoEfectivoMixtoSocio({ ...montoEfectivoMixtoSocio, [d.cliente_id]: val });
+                                      const numVal = Number(val) || 0;
+                                      const rem = Math.max(0, d.monto - numVal);
+                                      setMontoTarjetaMixtoSocio({ ...montoTarjetaMixtoSocio, [d.cliente_id]: rem.toFixed(2) });
+                                    }}
+                                    placeholder="0.00"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-6 pr-2 py-1 text-xs text-white font-bold outline-none focus:border-purple-500"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-bold block mb-1">Monto Tarjeta</label>
+                                <div className="relative">
+                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs">$</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={montoTarjetaMixtoSocio[d.cliente_id] || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setMontoTarjetaMixtoSocio({ ...montoTarjetaMixtoSocio, [d.cliente_id]: val });
+                                      const numVal = Number(val) || 0;
+                                      const rem = Math.max(0, d.monto - numVal);
+                                      setMontoEfectivoMixtoSocio({ ...montoEfectivoMixtoSocio, [d.cliente_id]: rem.toFixed(2) });
+                                    }}
+                                    placeholder="0.00"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-6 pr-2 py-1 text-xs text-white font-bold outline-none focus:border-purple-500"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            {Math.abs(Number(montoEfectivoMixtoSocio[d.cliente_id] || 0) + Number(montoTarjetaMixtoSocio[d.cliente_id] || 0) - d.monto) > 0.01 && (
+                              <div className="text-[10px] text-red-400 font-semibold mt-1">
+                                La suma (${(Number(montoEfectivoMixtoSocio[d.cliente_id] || 0) + Number(montoTarjetaMixtoSocio[d.cliente_id] || 0)).toFixed(2)}) no coincide con el total proporcional (${d.monto.toFixed(2)})
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Adeudo Info y Opción de Cobro */}
                         {deudasSocios[d.cliente_id] && deudasSocios[d.cliente_id].total > 0 && (
@@ -2242,24 +2462,133 @@ export default function POSView() {
                             </div>
                           </div>
                         )}
+                        {/* Opciones de Abono si es un solo socio */}
+                        {splitPreview.divisiones.length === 1 && (
+                          <div className="mt-4 p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-350">¿Realizar Abono Parcial?</span>
+                              <input
+                                type="checkbox"
+                                checked={abonoMonto !== ''}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setAbonoMonto('0');
+                                  } else {
+                                    setAbonoMonto('');
+                                  }
+                                }}
+                                className="rounded border-slate-700 bg-slate-800 text-campestre-gold focus:ring-campestre-gold focus:ring-offset-0"
+                              />
+                            </div>
+                            
+                            {abonoMonto !== '' && (
+                              <div className="space-y-3 pt-2 border-t border-slate-800">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-[10px] text-slate-400 font-bold block mb-1">Monto del Abono</label>
+                                    <input
+                                      type="number"
+                                      value={abonoMonto}
+                                      onChange={(e) => setAbonoMonto(e.target.value)}
+                                      placeholder="0.00"
+                                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-bold outline-none focus:border-campestre-gold"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-slate-400 font-bold block mb-1">Método de Pago</label>
+                                    <select
+                                      value={metodoPagoAbono}
+                                      onChange={(e) => setMetodoPagoAbono(e.target.value)}
+                                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-campestre-gold"
+                                    >
+                                      <option value="EFECTIVO">Efectivo</option>
+                                      <option value="TARJETA">Tarjeta</option>
+                                      <option value="MIXTO">Mixto</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                {metodoPagoAbono === 'MIXTO' && (
+                                  <div className="grid grid-cols-2 gap-2 mt-2 p-2.5 bg-slate-950 rounded-lg border border-purple-500/20">
+                                    <div>
+                                      <label className="text-[10px] text-slate-400 font-bold block mb-1">Efectivo</label>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={montoEfectivoMixto}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setMontoEfectivoMixto(val);
+                                          const numVal = Number(val) || 0;
+                                          const rem = Math.max(0, Number(abonoMonto) - numVal);
+                                          setMontoTarjetaMixto(rem.toFixed(2));
+                                        }}
+                                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-bold outline-none"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] text-slate-400 font-bold block mb-1">Tarjeta</label>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={montoTarjetaMixto}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setMontoTarjetaMixto(val);
+                                          const numVal = Number(val) || 0;
+                                          const rem = Math.max(0, Number(abonoMonto) - numVal);
+                                          setMontoEfectivoMixto(rem.toFixed(2));
+                                        }}
+                                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white font-bold outline-none"
+                                      />
+                                    </div>
+                                    {Math.abs(Number(montoEfectivoMixto || 0) + Number(montoTarjetaMixto || 0) - Number(abonoMonto)) > 0.01 && (
+                                      <div className="col-span-2 text-[9px] text-red-400 font-semibold mt-1">
+                                        La suma (${(Number(montoEfectivoMixto || 0) + Number(montoTarjetaMixto || 0)).toFixed(2)}) no coincide con el abono (${Number(abonoMonto).toFixed(2)})
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="text-[10px] text-slate-400">
+                                  El resto (<span className="text-yellow-400 font-bold">${Math.max(0, d.monto - (Number(abonoMonto) || 0)).toFixed(2)}</span>) se registrará como Cargo a Socio pendiente.
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <button
-                  onClick={handleConfirmarCobro}
-                  disabled={cargando}
-                  className="w-full py-3.5 bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 font-bold rounded-xl btn-premium mt-6 flex justify-center items-center space-x-2 shadow-lg shadow-campestre-gold/20 transition-all active:scale-[0.98]"
-                >
-                  <CreditCard size={16} />
-                  <span>
-                    {cargando 
-                      ? 'Procesando transacciones...' 
-                      : `Pagar $${totalMasAdeudos.toFixed(2)}`
+                {(() => {
+                  const splitMixtoInvalido = splitPreview?.divisiones?.some((div: any) => {
+                    if (metodosPago[div.cliente_id] === 'MIXTO') {
+                      const ef = Number(montoEfectivoMixtoSocio[div.cliente_id] || 0);
+                      const tj = Number(montoTarjetaMixtoSocio[div.cliente_id] || 0);
+                      return Math.abs(ef + tj - div.monto) > 0.01;
                     }
-                  </span>
-                </button>
+                    return false;
+                  }) || (
+                    splitPreview?.divisiones?.length === 1 && abonoMonto && Number(abonoMonto) > 0 && metodoPagoAbono === 'MIXTO' && 
+                    Math.abs(Number(montoEfectivoMixto || 0) + Number(montoTarjetaMixto || 0) - Number(abonoMonto)) > 0.01
+                  );
+
+                  return (
+                    <button
+                      onClick={handleConfirmarCobro}
+                      disabled={cargando || splitMixtoInvalido}
+                      className="w-full py-3.5 bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 font-bold rounded-xl btn-premium mt-6 flex justify-center items-center space-x-2 shadow-lg shadow-campestre-gold/20 transition-all active:scale-[0.98]"
+                    >
+                      <CreditCard size={16} />
+                      <span>
+                        {cargando 
+                          ? 'Procesando transacciones...' 
+                          : `Pagar $${totalMasAdeudos.toFixed(2)}`
+                        }
+                      </span>
+                    </button>
+                  );
+                })()}
               </div>
             ) : (
               /* === MODO PAGO DIRECTO (sin socios) === */
@@ -2271,7 +2600,7 @@ export default function POSView() {
 
                 <div className="space-y-2">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Selecciona Método de Pago:</span>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <button
                       type="button"
                       onClick={() => setMetodoPagoDirecto('EFECTIVO')}
@@ -2295,6 +2624,22 @@ export default function POSView() {
                     >
                       <span className="text-2xl block mb-1">💳</span>
                       <span className={`text-xs font-bold block ${metodoPagoDirecto === 'TARJETA' ? 'text-blue-400' : 'text-slate-300'}`}>Tarjeta</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMetodoPagoDirecto('MIXTO');
+                        setMontoEfectivoMixto(totalMasAdeudos.toFixed(2));
+                        setMontoTarjetaMixto('0.00');
+                      }}
+                      className={`p-4 rounded-2xl border-2 text-center transition-all duration-200 ${
+                        metodoPagoDirecto === 'MIXTO'
+                          ? 'border-purple-400 bg-purple-500/10 shadow-lg shadow-purple-500/10'
+                          : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="text-2xl block mb-1">💵💳</span>
+                      <span className={`text-xs font-bold block ${metodoPagoDirecto === 'MIXTO' ? 'text-purple-400' : 'text-slate-300'}`}>Mixto</span>
                     </button>
                     <button
                       type="button"
@@ -2325,6 +2670,27 @@ export default function POSView() {
                           className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 pl-7 pr-3 text-white font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all"
                         />
                       </div>
+
+                      {/* Botones de Efectivo Rápido */}
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setMontoRecibido(totalMasAdeudos.toFixed(2))}
+                          className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-xl text-[10px] font-bold transition-all active:scale-[0.98]"
+                        >
+                          Monto Exacto (${totalMasAdeudos.toFixed(0)})
+                        </button>
+                        {[50, 100, 200, 500].filter(m => m >= totalMasAdeudos).map(m => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => setMontoRecibido(m.toFixed(2))}
+                            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-350 border border-slate-700 rounded-xl text-[10px] font-bold transition-all active:scale-[0.98]"
+                          >
+                            ${m}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     {montoRecibido && Number(montoRecibido) >= totalMasAdeudos && (
                       <div className="flex justify-between items-center pt-2 border-t border-slate-800">
@@ -2337,6 +2703,60 @@ export default function POSView() {
                     {montoRecibido && Number(montoRecibido) > 0 && Number(montoRecibido) < totalMasAdeudos && (
                       <div className="text-right">
                         <span className="text-[10px] text-red-400 font-bold">Monto insuficiente</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {metodoPagoDirecto === 'MIXTO' && (
+                  <div className="p-4 bg-slate-900 border border-purple-500/20 rounded-2xl space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col space-y-1">
+                        <label className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">Monto Efectivo</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                          <input
+                            type="number"
+                            value={montoEfectivoMixto}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setMontoEfectivoMixto(val);
+                              const numVal = Number(val || 0);
+                              if (numVal <= totalMasAdeudos) {
+                                setMontoTarjetaMixto((totalMasAdeudos - numVal).toFixed(2));
+                              }
+                            }}
+                            placeholder="0.00"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 pl-7 pr-3 text-white font-bold focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col space-y-1">
+                        <label className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">Monto Tarjeta</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                          <input
+                            type="number"
+                            value={montoTarjetaMixto}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setMontoTarjetaMixto(val);
+                              const numVal = Number(val || 0);
+                              if (numVal <= totalMasAdeudos) {
+                                setMontoEfectivoMixto((totalMasAdeudos - numVal).toFixed(2));
+                              }
+                            }}
+                            placeholder="0.00"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 pl-7 pr-3 text-white font-bold focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    {Math.abs(Number(montoEfectivoMixto || 0) + Number(montoTarjetaMixto || 0) - totalMasAdeudos) > 0.01 && (
+                      <div className="text-center pt-1">
+                        <span className="text-[10px] text-red-400 font-bold">
+                          La suma (${(Number(montoEfectivoMixto || 0) + Number(montoTarjetaMixto || 0)).toFixed(2)}) no coincide con el total (${totalMasAdeudos.toFixed(2)})
+                        </span>
                       </div>
                     )}
                   </div>
@@ -2374,10 +2794,11 @@ export default function POSView() {
 
                 <button
                   onClick={handleCobroDirecto}
-                  disabled={cargando}
+                  disabled={cargando || (metodoPagoDirecto === 'MIXTO' && Math.abs(Number(montoEfectivoMixto || 0) + Number(montoTarjetaMixto || 0) - totalMasAdeudos) > 0.01)}
                   className={`w-full py-3.5 font-bold rounded-xl btn-premium flex justify-center items-center space-x-2 shadow-lg transition-all ${
                     metodoPagoDirecto === 'EFECTIVO' ? 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/20'
                     : metodoPagoDirecto === 'TARJETA' ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-blue-500/20'
+                    : metodoPagoDirecto === 'MIXTO' ? 'bg-purple-500 hover:bg-purple-400 text-white shadow-purple-500/20'
                     : 'bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 shadow-campestre-gold/20'
                   }`}
                 >
@@ -2385,7 +2806,12 @@ export default function POSView() {
                   <span>
                     {cargando 
                       ? 'Procesando...' 
-                      : `Cobrar $${totalMasAdeudos.toFixed(2)} con ${metodoPagoDirecto === 'EFECTIVO' ? 'Efectivo' : metodoPagoDirecto === 'TARJETA' ? 'Tarjeta' : 'Cargo a Socio'}`
+                      : `Cobrar $${totalMasAdeudos.toFixed(2)} con ${
+                          metodoPagoDirecto === 'EFECTIVO' ? 'Efectivo' 
+                          : metodoPagoDirecto === 'TARJETA' ? 'Tarjeta' 
+                          : metodoPagoDirecto === 'MIXTO' ? 'Pago Mixto'
+                          : 'Cargo a Socio'
+                        }`
                     }
                   </span>
                 </button>
@@ -2553,6 +2979,7 @@ export default function POSView() {
                 <Search size={14} />
               </span>
               <input
+                ref={inputMezcladorRef}
                 type="text"
                 placeholder="Buscar mezclador (agua mineral, Coca, cerveza)..."
                 value={busquedaMezclador}

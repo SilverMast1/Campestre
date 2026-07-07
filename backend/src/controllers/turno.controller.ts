@@ -86,6 +86,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
 
       if (cuenta.divisionesCuentas.length > 0) {
         // Pago Split (con socios)
+        let sumaDivisiones = new Decimal(0);
         cuenta.divisionesCuentas.forEach(div => {
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
@@ -93,6 +94,12 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
           if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
           else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
           else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+          else if (metodo === 'MIXTO') {
+            efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
+            tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+          }
+
+          sumaDivisiones = sumaDivisiones.plus(montoDec);
 
           pagos.push({
             cliente_id: div.cliente_id,
@@ -101,6 +108,25 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
             metodo: div.metodo_pago,
           });
         });
+
+        // Abono Directo (si hay diferencia y se especificó método de pago en la cuenta)
+        const totalCuenta = new Decimal(cuenta.total);
+        if (cuenta.metodo_pago && totalCuenta.greaterThan(sumaDivisiones)) {
+          const dif = totalCuenta.minus(sumaDivisiones);
+          if (cuenta.metodo_pago === 'EFECTIVO') efectivo = efectivo.plus(dif);
+          else if (cuenta.metodo_pago === 'TARJETA') tarjeta = tarjeta.plus(dif);
+          else if (cuenta.metodo_pago === 'MIXTO') {
+            efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
+            tarjeta = tarjeta.plus(new Decimal(cuenta.monto_tarjeta || 0));
+          }
+
+          pagos.push({
+            cliente_id: null,
+            nombre: 'Abono Directo',
+            monto: Number(dif),
+            metodo: cuenta.metodo_pago,
+          });
+        }
       } else if (cuenta.metodo_pago) {
         // Pago Directo (sin socios)
         const montoDec = new Decimal(cuenta.total);
@@ -109,6 +135,10 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
         if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
         else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
         else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+        else if (metodo === 'MIXTO') {
+          efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
+          tarjeta = tarjeta.plus(new Decimal(cuenta.monto_tarjeta || 0));
+        }
 
         pagos.push({
           cliente_id: null,
@@ -244,7 +274,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
         if (cuenta.nombre_referencia) {
           clienteEncontrado = await prisma.cliente.findFirst({
             where: {
-              nombre: { equals: cuenta.nombre_referencia.trim(), mode: 'insensitive' },
+              nombre: { equals: cuenta.nombre_referencia.trim() },
               activo: true,
             },
           });
@@ -322,19 +352,40 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
 
     turno.cuentas.forEach(cuenta => {
       if (cuenta.divisionesCuentas.length > 0) {
+        let sumaDivisiones = new Decimal(0);
         cuenta.divisionesCuentas.forEach(div => {
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
           if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
           else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
           else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+          else if (metodo === 'MIXTO') {
+            efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
+            tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+          }
+          sumaDivisiones = sumaDivisiones.plus(montoDec);
         });
+
+        const totalCuenta = new Decimal(cuenta.total);
+        if (cuenta.metodo_pago && totalCuenta.greaterThan(sumaDivisiones)) {
+          const dif = totalCuenta.minus(sumaDivisiones);
+          if (cuenta.metodo_pago === 'EFECTIVO') efectivo = efectivo.plus(dif);
+          else if (cuenta.metodo_pago === 'TARJETA') tarjeta = tarjeta.plus(dif);
+          else if (cuenta.metodo_pago === 'MIXTO') {
+            efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
+            tarjeta = tarjeta.plus(new Decimal(cuenta.monto_tarjeta || 0));
+          }
+        }
       } else if (cuenta.metodo_pago) {
         const montoDec = new Decimal(cuenta.total);
         const metodo = cuenta.metodo_pago;
         if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
         else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
         else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+        else if (metodo === 'MIXTO') {
+          efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
+          tarjeta = tarjeta.plus(new Decimal(cuenta.monto_tarjeta || 0));
+        }
       }
     });
 

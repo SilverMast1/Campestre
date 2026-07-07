@@ -166,8 +166,8 @@ export async function buscarSocios(req: AuthenticatedRequest, res: Response) {
       where: {
         activo: true,
         OR: [
-          { nombre: { contains: query, mode: 'insensitive' } },
-          { codigo_socio: { contains: query, mode: 'insensitive' } },
+          { nombre: { contains: query } },
+          { codigo_socio: { contains: query } },
         ],
       },
       select: {
@@ -220,7 +220,12 @@ export async function actualizarSocio(req: AuthenticatedRequest, res: Response) 
   try {
     const socioActualizado = await prisma.cliente.update({
       where: { id: socioId },
-      data: { nombre, email, telefono, codigo_socio }
+      data: {
+        nombre: nombre ? nombre.trim().toUpperCase() : undefined,
+        email,
+        telefono,
+        codigo_socio
+      }
     });
     return res.json(socioActualizado);
   } catch (error: any) {
@@ -364,7 +369,7 @@ export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Respon
     };
 
     if (Array.isArray(divisionesIds) && divisionesIds.length > 0) {
-      const parsedIds = divisionesIds.map((id) => BigInt(id));
+      const parsedIds = divisionesIds.map((id) => parseInt(id));
       whereClause.id = { in: parsedIds };
     }
 
@@ -403,7 +408,7 @@ export async function borrarCargosSocio(req: AuthenticatedRequest, res: Response
     };
 
     if (Array.isArray(divisionesIds) && divisionesIds.length > 0) {
-      const parsedIds = divisionesIds.map((id) => BigInt(id));
+      const parsedIds = divisionesIds.map((id) => parseInt(id));
       whereClause.id = { in: parsedIds };
     }
 
@@ -449,7 +454,7 @@ export async function obtenerCuentaActivaSocio(req: AuthenticatedRequest, res: R
       select: { cadi_id: true },
     });
 
-    let cuenta = null;
+    let cuenta: any = null;
     let totalIntegrantes = 1;
 
     if (asignacionCadi) {
@@ -480,7 +485,6 @@ export async function obtenerCuentaActivaSocio(req: AuthenticatedRequest, res: R
           estado: 'ABIERTA',
           nombre_referencia: {
             contains: socio.nombre,
-            mode: 'insensitive',
           },
         },
         include: {
@@ -504,7 +508,7 @@ export async function obtenerCuentaActivaSocio(req: AuthenticatedRequest, res: R
     }
 
     // Formatear respuesta
-    const productos = cuenta.detalleCuentas.map((dc) => ({
+    const productos = cuenta.detalleCuentas.map((dc: any) => ({
       nombre: dc.producto.nombre,
       cantidad: Number(dc.cantidad),
       precio: Number(dc.precio_unitario),

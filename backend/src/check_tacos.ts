@@ -7,13 +7,13 @@ async function run() {
     where: { 
       area_id: 1, 
       producto: { 
-        nombre: { contains: 'taco', mode: 'insensitive' } 
+        nombre: { contains: 'taco' } 
       } 
     },
     include: { producto: true }
   });
   
-  for (const p of prods) {
+  for (const p of prods as any[]) {
     console.log(p.producto.nombre, p.stock.toString());
   }
 }

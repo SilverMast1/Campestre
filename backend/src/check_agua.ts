@@ -4,7 +4,7 @@ async function main() {
   console.log("=== BUSCANDO AGUA MINERAL GRANDE ===");
   const products = await prisma.producto.findMany({
     where: {
-      nombre: { contains: 'Agua Mineral', mode: 'insensitive' }
+      nombre: { contains: 'Agua Mineral' }
     }
   });
 

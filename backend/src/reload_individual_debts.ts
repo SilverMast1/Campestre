@@ -113,8 +113,7 @@ async function main() {
     let socio = await prisma.cliente.findFirst({
       where: {
         nombre: {
-          equals: cargo.nombre,
-          mode: 'insensitive'
+          equals: cargo.nombre
         }
       }
     });

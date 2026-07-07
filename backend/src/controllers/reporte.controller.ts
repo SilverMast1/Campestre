@@ -69,6 +69,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
       totalDescuentos = totalDescuentos.plus(new Decimal(c.descuento || 0));
 
       if (c.divisionesCuentas.length > 0) {
+        let sumaDivisiones = new Decimal(0);
         c.divisionesCuentas.forEach(div => {
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
@@ -76,6 +77,12 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
           if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
           else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
           else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
+          else if (metodo === 'MIXTO') {
+            efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
+            tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+          }
+
+          sumaDivisiones = sumaDivisiones.plus(montoDec);
 
           pagos.push({
             nombre: div.cliente.nombre,
@@ -83,11 +90,32 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
             metodo,
           });
         });
+
+        // Abono Directo (si hay diferencia y se especificó método de pago en la cuenta)
+        if (c.metodo_pago && totalCuenta.greaterThan(sumaDivisiones)) {
+          const dif = totalCuenta.minus(sumaDivisiones);
+          if (c.metodo_pago === 'EFECTIVO') efectivo = efectivo.plus(dif);
+          else if (c.metodo_pago === 'TARJETA') tarjeta = tarjeta.plus(dif);
+          else if (c.metodo_pago === 'MIXTO') {
+            efectivo = efectivo.plus(new Decimal(c.monto_efectivo || 0));
+            tarjeta = tarjeta.plus(new Decimal(c.monto_tarjeta || 0));
+          }
+
+          pagos.push({
+            nombre: 'Abono Directo',
+            monto: Number(dif),
+            metodo: c.metodo_pago,
+          });
+        }
       } else if (c.metodo_pago) {
         const metodo = c.metodo_pago;
         if (metodo === 'EFECTIVO') efectivo = efectivo.plus(totalCuenta);
         else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(totalCuenta);
         else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(totalCuenta);
+        else if (metodo === 'MIXTO') {
+          efectivo = efectivo.plus(new Decimal(c.monto_efectivo || 0));
+          tarjeta = tarjeta.plus(new Decimal(c.monto_tarjeta || 0));
+        }
 
         pagos.push({
           nombre: 'Pago directo',

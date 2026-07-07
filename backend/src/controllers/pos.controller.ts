@@ -5,7 +5,7 @@ import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 
 // 1. Obtener productos y stock de un área específica (Bar, Snack, Palapa)
 
-async function gestionarStock(tx: any, areaId: number, productoId: number, cantidadDiff: any, usuarioId: number, cuentaId: bigint) {
+async function gestionarStock(tx: any, areaId: number, productoId: number, cantidadDiff: any, usuarioId: number, cuentaId: number) {
   if (cantidadDiff.isZero()) return;
 
   const prod = await tx.producto.findUnique({ where: { id: productoId } });
@@ -18,8 +18,8 @@ async function gestionarStock(tx: any, areaId: number, productoId: number, canti
     let cantidadPorDescontar = cantidadDiff;
 
     if (nombreProd === 'agua mineral prep') {
-      const prodGrande = await tx.producto.findFirst({ where: { nombre: { equals: 'Agua Mineral Grande', mode: 'insensitive' } } });
-      const prodNormal = await tx.producto.findFirst({ where: { nombre: { equals: 'Agua Mineral', mode: 'insensitive' } } });
+      const prodGrande = await tx.producto.findFirst({ where: { nombre: { equals: 'Agua Mineral Grande' } } });
+      const prodNormal = await tx.producto.findFirst({ where: { nombre: { equals: 'Agua Mineral' } } });
 
       if (prodGrande) {
         const invGrande = await tx.inventarioArea.findUnique({ where: { area_id_producto_id: { area_id: areaId, producto_id: prodGrande.id } } });
@@ -75,7 +75,7 @@ async function gestionarStock(tx: any, areaId: number, productoId: number, canti
     let cantidadPorDevolver = cantidadDiff.abs();
     
     if (nombreProd === 'agua mineral prep') {
-      const prodNormal = await tx.producto.findFirst({ where: { nombre: { equals: 'Agua Mineral', mode: 'insensitive' } } });
+      const prodNormal = await tx.producto.findFirst({ where: { nombre: { equals: 'Agua Mineral' } } });
       if (prodNormal) {
         const invNormal = await tx.inventarioArea.findUnique({ where: { area_id_producto_id: { area_id: areaId, producto_id: prodNormal.id } } });
         if (invNormal) {
@@ -190,7 +190,7 @@ export async function abrirCuenta(req: AuthenticatedRequest, res: Response) {
 
 // 3. Registrar consumos (guardar cuenta abierta / actualizar detalles)
 export async function guardarConsumos(req: AuthenticatedRequest, res: Response) {
-  const cuentaId = BigInt(req.params.cuentaId);
+  const cuentaId = parseInt(req.params.cuentaId);
   const { productos, cadi_id, nombre_referencia, cliente_id } = req.body; // Array de { producto_id, cantidad }
 
   if (!Array.isArray(productos)) {
@@ -277,6 +277,7 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
             subtotal: isDescuento ? new Decimal(0) : itemSubtotal,
             total: itemTotal,
             estado_item: 'ENTREGADO',
+            notas: p.notas || null,
           },
         });
       }
@@ -328,7 +329,7 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
 
 // 4. Previsualizar la división (Split) de la cuenta vinculada al Cadi
 export async function previsualizarSplit(req: AuthenticatedRequest, res: Response) {
-  const cuentaId = BigInt(req.params.cuentaId);
+  const cuentaId = parseInt(req.params.cuentaId);
 
   try {
     const cuenta = await prisma.cuenta.findUnique({
@@ -413,15 +414,16 @@ export async function previsualizarSplit(req: AuthenticatedRequest, res: Respons
 //   a) Pago Directo: body = { metodo_pago: 'EFECTIVO' | 'TARJETA' } — sin socios/divisiones
 //   b) Pago Split:   body = { pagos: [{ cliente_id, monto, metodo_pago }] } — con socios
 export async function pagarYCerrarCuenta(req: AuthenticatedRequest, res: Response) {
-  const cuentaId = BigInt(req.params.cuentaId);
-  const { pagos, metodo_pago } = req.body;
+  const cuentaId = parseInt(req.params.cuentaId);
+  const { pagos, metodo_pago, abono, cliente_id, monto_efectivo, monto_tarjeta } = req.body;
   const usuarioId = req.user?.id;
 
-  const esPagoDirecto = metodo_pago && (!pagos || pagos.length === 0);
+  const esPagoDirecto = metodo_pago && (!pagos || pagos.length === 0) && abono === undefined;
   const esPagoSplit = Array.isArray(pagos) && pagos.length > 0;
+  const esPagoAbonoCargo = abono !== undefined && cliente_id !== undefined;
 
-  if (!esPagoDirecto && !esPagoSplit) {
-    return res.status(400).json({ error: 'Debe especificar un método de pago o los pagos divididos por socio' });
+  if (!esPagoDirecto && !esPagoSplit && !esPagoAbonoCargo) {
+    return res.status(400).json({ error: 'Debe especificar un método de pago, los pagos divididos por socio o el abono con cargo a socio' });
   }
 
   if (!usuarioId) {
@@ -444,14 +446,99 @@ export async function pagarYCerrarCuenta(req: AuthenticatedRequest, res: Respons
     await prisma.$transaction(async (tx) => {
       if (esPagoDirecto) {
         // 2a. Pago Directo — cerrar la cuenta con el método de pago indicado (sin divisiones)
-        await tx.cuenta.update({
-          where: { id: cuentaId },
-          data: {
-            estado: 'PAGADA',
-            closed_at: new Date(),
-            metodo_pago: metodo_pago,
-          },
-        });
+        if (metodo_pago === 'MIXTO') {
+          if (monto_efectivo === undefined || monto_tarjeta === undefined) {
+            throw new Error('Debe especificar el monto en efectivo y en tarjeta para pago mixto');
+          }
+          const totalCuenta = new Decimal(cuenta.total);
+          const efDec = new Decimal(monto_efectivo);
+          const tjDec = new Decimal(monto_tarjeta);
+          if (!efDec.plus(tjDec).toDP(2).equals(totalCuenta.toDP(2))) {
+            throw new Error(`La suma de efectivo ($${efDec.toNumber()}) y tarjeta ($${tjDec.toNumber()}) no coincide con el total ($${totalCuenta.toNumber()})`);
+          }
+          await tx.cuenta.update({
+            where: { id: cuentaId },
+            data: {
+              estado: 'PAGADA',
+              closed_at: new Date(),
+              metodo_pago: 'MIXTO',
+              monto_efectivo: efDec,
+              monto_tarjeta: tjDec,
+            },
+          });
+        } else {
+          await tx.cuenta.update({
+            where: { id: cuentaId },
+            data: {
+              estado: 'PAGADA',
+              closed_at: new Date(),
+              metodo_pago: metodo_pago,
+              monto_efectivo: metodo_pago === 'EFECTIVO' ? cuenta.total : 0,
+              monto_tarjeta: metodo_pago === 'TARJETA' ? cuenta.total : 0,
+            },
+          });
+        }
+      } else if (esPagoAbonoCargo) {
+        // 2c. Pago con Abono y Cargo Socio
+        const totalCuenta = new Decimal(cuenta.total);
+        const abonoDec = new Decimal(abono);
+
+        if (abonoDec.lessThan(0)) {
+          throw new Error('El abono no puede ser menor a cero');
+        }
+        if (abonoDec.greaterThan(totalCuenta)) {
+          throw new Error('El abono no puede ser mayor al total de la cuenta');
+        }
+
+        const cargoSocioMonto = totalCuenta.minus(abonoDec);
+        const porcentajeCargo = cargoSocioMonto.div(totalCuenta).mul(100);
+
+        if (cargoSocioMonto.greaterThan(0)) {
+          await tx.divisionCuenta.create({
+            data: {
+              cuenta_id: cuentaId,
+              cliente_id: cliente_id,
+              porcentaje_participacion: porcentajeCargo,
+              monto_proporcional: cargoSocioMonto,
+              metodo_pago: 'CARGO_SOCIO',
+              estado_pago: 'PENDIENTE',
+              pagado_at: null,
+            },
+          });
+        }
+
+        // Registrar el abono en el metodo_pago de la cuenta
+        if (metodo_pago === 'MIXTO') {
+          if (monto_efectivo === undefined || monto_tarjeta === undefined) {
+            throw new Error('Debe especificar el monto en efectivo y en tarjeta para pago mixto');
+          }
+          const efDec = new Decimal(monto_efectivo);
+          const tjDec = new Decimal(monto_tarjeta);
+          if (!efDec.plus(tjDec).toDP(2).equals(abonoDec.toDP(2))) {
+            throw new Error(`La suma de efectivo ($${efDec.toNumber()}) y tarjeta ($${tjDec.toNumber()}) no coincide con el abono ($${abonoDec.toNumber()})`);
+          }
+          await tx.cuenta.update({
+            where: { id: cuentaId },
+            data: {
+              estado: 'PAGADA',
+              closed_at: new Date(),
+              metodo_pago: 'MIXTO',
+              monto_efectivo: efDec,
+              monto_tarjeta: tjDec,
+            },
+          });
+        } else {
+          await tx.cuenta.update({
+            where: { id: cuentaId },
+            data: {
+              estado: 'PAGADA',
+              closed_at: new Date(),
+              metodo_pago: metodo_pago || 'EFECTIVO',
+              monto_efectivo: (metodo_pago || 'EFECTIVO') === 'EFECTIVO' ? abonoDec : 0,
+              monto_tarjeta: (metodo_pago || 'EFECTIVO') === 'TARJETA' ? abonoDec : 0,
+            },
+          });
+        }
       } else {
         // 2b. Pago Split — registrar los pagos divisionales de los socios
         const totalCuenta = new Decimal(cuenta.total);
@@ -464,6 +551,25 @@ export async function pagarYCerrarCuenta(req: AuthenticatedRequest, res: Respons
           const porcentaje = montoDec.div(totalCuenta).mul(100);
 
           const esCargoSocio = pago.metodo_pago === 'CARGO_SOCIO';
+          const esMixto = pago.metodo_pago === 'MIXTO';
+
+          let efDec = new Decimal(0);
+          let tjDec = new Decimal(0);
+
+          if (esMixto) {
+            if (pago.monto_efectivo === undefined || pago.monto_tarjeta === undefined) {
+              throw new Error('Debe especificar el monto en efectivo y en tarjeta para el pago mixto del socio');
+            }
+            efDec = new Decimal(pago.monto_efectivo);
+            tjDec = new Decimal(pago.monto_tarjeta);
+            if (!efDec.plus(tjDec).toDP(2).equals(montoDec.toDP(2))) {
+              throw new Error(`La suma de efectivo ($${efDec.toNumber()}) y tarjeta ($${tjDec.toNumber()}) no coincide con el total proporcional del socio ($${montoDec.toNumber()})`);
+            }
+          } else if (pago.metodo_pago === 'EFECTIVO') {
+            efDec = montoDec;
+          } else if (pago.metodo_pago === 'TARJETA') {
+            tjDec = montoDec;
+          }
 
           await tx.divisionCuenta.create({
             data: {
@@ -472,6 +578,8 @@ export async function pagarYCerrarCuenta(req: AuthenticatedRequest, res: Respons
               porcentaje_participacion: porcentaje,
               monto_proporcional: montoDec,
               metodo_pago: pago.metodo_pago,
+              monto_efectivo: efDec,
+              monto_tarjeta: tjDec,
               estado_pago: esCargoSocio ? 'PENDIENTE' : 'PAGADO',
               pagado_at: esCargoSocio ? null : new Date(),
             },
@@ -602,7 +710,7 @@ export async function ajustarStockArea(req: AuthenticatedRequest, res: Response)
       });
 
       return invActualizado;
-    });
+    }, { timeout: 15000 });
 
     // Notificar cambio de inventario por sockets si el servidor tiene adjunto socket.io
     const io = req.app.get('io');
@@ -706,6 +814,7 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
         categoria: d.producto.categoria,
         cantidad: Number(d.cantidad),
         subtotal: Number(d.subtotal),
+        notas: d.notas || null,
       })),
       divisiones: c.divisionesCuentas.map((d) => ({
         cliente: d.cliente.nombre,
@@ -725,7 +834,8 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
 
 // 8. Eliminar una cuenta (Admin) — también elimina sus detalles y divisiones
 export async function eliminarCuenta(req: AuthenticatedRequest, res: Response) {
-  const cuentaId = BigInt(req.params.cuentaId);
+  const cuentaId = parseInt(req.params.cuentaId);
+  const usuarioId = req.user?.id || 1;
 
   try {
     const cuenta = await prisma.cuenta.findUnique({ where: { id: cuentaId } });
@@ -734,6 +844,15 @@ export async function eliminarCuenta(req: AuthenticatedRequest, res: Response) {
     }
 
     await prisma.$transaction(async (tx) => {
+      // 1. Obtener detalles de la cuenta (no retornamos productos al inventario para que el stock permanezca descontado)
+      // Conforme a solicitud del usuario: "si se llega a borrar una cuenta ya abierta, esta elimine su inventario de stock no que lo restablezca"
+      // const detalles = await tx.detalleCuenta.findMany({ where: { cuenta_id: cuentaId } });
+      // for (const detalle of detalles) {
+      //   const diff = detalle.cantidad.negated();
+      //   await gestionarStock(tx, cuenta.area_id, detalle.producto_id, diff, usuarioId, cuentaId);
+      // }
+
+      // 3. Eliminar divisiones, detalles y la cuenta
       await tx.divisionCuenta.deleteMany({ where: { cuenta_id: cuentaId } });
       await tx.detalleCuenta.deleteMany({ where: { cuenta_id: cuentaId } });
       await tx.cuenta.delete({ where: { id: cuentaId } });
@@ -871,17 +990,19 @@ export async function obtenerBalanceCaja(req: AuthenticatedRequest, res: Respons
       },
     });
 
-    // 2. Pagos directos (sin socios) en este turno
-    const balancesDirectos = await prisma.cuenta.groupBy({
-      by: ['metodo_pago'],
+    // 2. Pagos directos (sin socios/divisiones) en este turno
+    const cuentasDirectas = await prisma.cuenta.findMany({
       where: {
         estado: 'PAGADA',
         metodo_pago: { not: null },
         turno_id: turno.id
       },
-      _sum: {
+      select: {
+        metodo_pago: true,
         total: true,
-      },
+        monto_efectivo: true,
+        monto_tarjeta: true,
+      }
     });
 
     const resultado = {
@@ -900,12 +1021,18 @@ export async function obtenerBalanceCaja(req: AuthenticatedRequest, res: Respons
     });
 
     // Sumar pagos directos
-    balancesDirectos.forEach((item) => {
-      const metodo = item.metodo_pago;
-      const suma = Number(item._sum.total || 0);
-      if (metodo === 'EFECTIVO') resultado.efectivo += suma;
-      else if (metodo === 'TARJETA') resultado.tarjeta += suma;
-      else if (metodo === 'CARGO_SOCIO') resultado.cargo_socio += suma;
+    cuentasDirectas.forEach((cuenta) => {
+      const metodo = cuenta.metodo_pago;
+      if (metodo === 'EFECTIVO') {
+        resultado.efectivo += Number(cuenta.total || 0);
+      } else if (metodo === 'TARJETA') {
+        resultado.tarjeta += Number(cuenta.total || 0);
+      } else if (metodo === 'CARGO_SOCIO') {
+        resultado.cargo_socio += Number(cuenta.total || 0);
+      } else if (metodo === 'MIXTO') {
+        resultado.efectivo += Number(cuenta.monto_efectivo || 0);
+        resultado.tarjeta += Number(cuenta.monto_tarjeta || 0);
+      }
     });
 
     return res.json(resultado);
@@ -917,8 +1044,8 @@ export async function obtenerBalanceCaja(req: AuthenticatedRequest, res: Respons
 
 // 12. Actualizar método de pago de una cuenta ya pagada (Efectivo / Tarjeta / Cargo Socio)
 export async function actualizarMetodoPagoCuenta(req: AuthenticatedRequest, res: Response) {
-  const cuentaId = BigInt(req.params.cuentaId);
-  const { metodo_pago, divisiones } = req.body; // divisiones = [ { cliente_id: number, metodo_pago: string } ]
+  const cuentaId = parseInt(req.params.cuentaId);
+  const { metodo_pago, divisiones, monto_efectivo, monto_tarjeta } = req.body; // divisiones = [ { cliente_id: number, metodo_pago: string } ]
 
   try {
     const cuenta = await prisma.cuenta.findUnique({
@@ -952,9 +1079,27 @@ export async function actualizarMetodoPagoCuenta(req: AuthenticatedRequest, res:
           });
         }
       } else if (metodo_pago) {
+        let ef = new Decimal(0);
+        let tj = new Decimal(0);
+        if (metodo_pago === 'EFECTIVO') {
+          ef = new Decimal(cuenta.total);
+        } else if (metodo_pago === 'TARJETA') {
+          tj = new Decimal(cuenta.total);
+        } else if (metodo_pago === 'MIXTO') {
+          if (monto_efectivo !== undefined && monto_tarjeta !== undefined) {
+            ef = new Decimal(monto_efectivo);
+            tj = new Decimal(monto_tarjeta);
+          } else {
+            throw new Error('Debe especificar monto_efectivo y monto_tarjeta para pago mixto');
+          }
+        }
         await tx.cuenta.update({
           where: { id: cuentaId },
-          data: { metodo_pago }
+          data: { 
+            metodo_pago,
+            monto_efectivo: ef,
+            monto_tarjeta: tj,
+          }
         });
       }
     });
@@ -1301,11 +1446,11 @@ export async function fusionarCuentas(req: AuthenticatedRequest, res: Response) 
   try {
     // 1. Validar que ambas existan y estén abiertas
     const cuentaOrigen = await prisma.cuenta.findUnique({
-      where: { id: BigInt(cuenta_origen_id) },
+      where: { id: parseInt(cuenta_origen_id) },
       include: { detalleCuentas: true }
     });
     const cuentaDestino = await prisma.cuenta.findUnique({
-      where: { id: BigInt(cuenta_destino_id) },
+      where: { id: parseInt(cuenta_destino_id) },
       include: { detalleCuentas: true }
     });
 

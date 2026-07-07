@@ -18,6 +18,7 @@ import { abrirTurno, obtenerTurnoActivo, cerrarTurno, registrarRetiroCaja } from
 import { obtenerReporteDiario, obtenerReporteCortes } from './controllers/reporte.controller';
 import { listarInsumos, crearInsumo, actualizarInsumo, eliminarInsumo, guardarReceta, obtenerReceta } from './controllers/insumo.controller';
 import { registrarGastoIngreso, obtenerReporteSemanalGastos, eliminarGastoIngreso } from './controllers/gastos.controller';
+import { listarBackups, crearBackup, restaurarBackup } from './controllers/backup.controller';
 
 const app = express();
 const server = http.createServer(app);
@@ -107,11 +108,16 @@ app.get('/api/admin/inventario/mermas', authenticateJWT, requireRoles(['ADMIN'])
 app.post('/api/pos/inventario/transferir', authenticateJWT, requireRoles(['ADMIN']), transferirStock);
 app.get('/api/admin/caja', authenticateJWT, requireRoles(['ADMIN']), obtenerBalanceCaja);
 app.get('/api/admin/cuentas', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), listarTodasLasCuentas);
-app.delete('/api/admin/cuentas/:cuentaId', authenticateJWT, requireRoles(['ADMIN']), eliminarCuenta);
+app.delete('/api/admin/cuentas/:cuentaId', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), eliminarCuenta);
 app.delete('/api/admin/reset', authenticateJWT, requireRoles(['ADMIN']), resetearDatos);
 app.post('/api/admin/productos', authenticateJWT, requireRoles(['ADMIN']), crearProducto);
 app.get('/api/admin/productos', authenticateJWT, requireRoles(['ADMIN']), listarTodosLosProductos);
 app.delete('/api/admin/productos/:productoId', authenticateJWT, requireRoles(['ADMIN']), eliminarProducto);
+
+// 2.5.5 Respaldos de Base de Datos (Solo Administradores)
+app.get('/api/admin/backups', authenticateJWT, requireRoles(['ADMIN']), listarBackups);
+app.post('/api/admin/backups/crear', authenticateJWT, requireRoles(['ADMIN']), crearBackup);
+app.post('/api/admin/backups/restaurar', authenticateJWT, requireRoles(['ADMIN']), restaurarBackup);
 
 // 2.9 Gestión de Usuarios Internos (Solo Administradores)
 app.get('/api/admin/usuarios', authenticateJWT, requireRoles(['ADMIN']), listarUsuarios);

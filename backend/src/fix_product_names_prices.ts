@@ -24,7 +24,7 @@ async function main() {
 
   // 1. Eliminar "Huevos al gusto" para dejar solo los específicos "Huevos con jamon" y "Huevos con chorizo"
   const huevosAlGusto = await prisma.producto.findFirst({
-    where: { nombre: { equals: 'Huevos al gusto', mode: 'insensitive' } }
+    where: { nombre: { equals: 'Huevos al gusto' } }
   });
   if (huevosAlGusto) {
     console.log('Eliminando "Huevos al gusto" de inventarios y catálogo...');
@@ -37,12 +37,12 @@ async function main() {
   for (const regla of REGLAS_FUSION) {
     // Buscar si ya existe el nuevo producto
     const nuevoProd = await prisma.producto.findFirst({
-      where: { nombre: { equals: regla.nuevo, mode: 'insensitive' } }
+      where: { nombre: { equals: regla.nuevo } }
     });
 
     // Buscar si existe el viejo producto
     const viejoProd = await prisma.producto.findFirst({
-      where: { nombre: { equals: regla.viejo, mode: 'insensitive' } }
+      where: { nombre: { equals: regla.viejo } }
     });
 
     const precioDec = new Decimal(regla.precio);
@@ -120,7 +120,7 @@ async function main() {
 
   for (const r of preciosRestantes) {
     const prod = await prisma.producto.findFirst({
-      where: { nombre: { equals: r.nombre, mode: 'insensitive' } }
+      where: { nombre: { equals: r.nombre } }
     });
     if (prod) {
       await prisma.producto.update({
