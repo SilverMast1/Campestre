@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { Search, Users, RefreshCw, Eye, CreditCard, DollarSign, X, Check, Calendar, AlertCircle, Trash2 } from 'lucide-react';
+import { Search, Users, RefreshCw, Eye, CreditCard, DollarSign, X, Check, Calendar, AlertCircle, Trash2, Smartphone } from 'lucide-react';
 
 interface SocioCargo {
   id: number;
@@ -44,7 +44,7 @@ export default function CargosSociosView() {
   const [divisionesSeleccionadas, setDivisionesSeleccionadas] = useState<string[]>([]);
 
   const [mostrarModalLiquidar, setMostrarModalLiquidar] = useState(false);
-  const [metodoPagoLiquidar, setMetodoPagoLiquidar] = useState<'EFECTIVO' | 'TARJETA'>('EFECTIVO');
+  const [metodoPagoLiquidar, setMetodoPagoLiquidar] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
   const [liquidando, setLiquidando] = useState(false);
   const [liquidarTodoSocio, setLiquidarTodoSocio] = useState<SocioCargo | null>(null);
   const [pagaCon, setPagaCon] = useState('');
@@ -590,7 +590,7 @@ export default function CargosSociosView() {
             </div>
 
             <label className="block text-xs font-semibold text-slate-400 mb-2">Selecciona el Método de Pago Real:</label>
-            <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="grid grid-cols-3 gap-2.5 mb-6">
               <button
                 type="button"
                 onClick={() => setMetodoPagoLiquidar('EFECTIVO')}
@@ -613,7 +613,19 @@ export default function CargosSociosView() {
                 }`}
               >
                 <CreditCard size={18} className={metodoPagoLiquidar === 'TARJETA' ? 'text-campestre-gold' : ''} />
-                <span>Tarjeta Bancaria</span>
+                <span>Tarjeta</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetodoPagoLiquidar('TRANSFERENCIA')}
+                className={`py-3 rounded-xl border font-bold text-xs flex flex-col items-center justify-center space-y-1.5 transition-all btn-premium ${
+                  metodoPagoLiquidar === 'TRANSFERENCIA'
+                    ? 'border-cyan-400 bg-cyan-500/10 text-white'
+                    : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Smartphone size={18} className={metodoPagoLiquidar === 'TRANSFERENCIA' ? 'text-cyan-400' : ''} />
+                <span>Transferencia</span>
               </button>
             </div>
 

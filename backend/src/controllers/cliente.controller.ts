@@ -358,8 +358,8 @@ export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Respon
     return res.status(400).json({ error: 'ID de socio inválido' });
   }
 
-  if (!metodo_pago || (metodo_pago !== 'EFECTIVO' && metodo_pago !== 'TARJETA')) {
-    return res.status(400).json({ error: 'Método de pago inválido (debe ser EFECTIVO o TARJETA)' });
+  if (!metodo_pago || (metodo_pago !== 'EFECTIVO' && metodo_pago !== 'TARJETA' && metodo_pago !== 'TRANSFERENCIA')) {
+    return res.status(400).json({ error: 'Método de pago inválido (debe ser EFECTIVO, TARJETA o TRANSFERENCIA)' });
   }
 
   try {

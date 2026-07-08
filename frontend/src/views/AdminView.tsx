@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { Package, Users, AlertTriangle, Check, RefreshCw, Trash2, Receipt, RotateCcw, Tag, Plus, Clock, DollarSign, CreditCard, Banknote, X, Briefcase, TrendingUp, Calendar, Search, FileText } from 'lucide-react';
+import { Package, Users, AlertTriangle, Check, RefreshCw, Trash2, Receipt, RotateCcw, Tag, Plus, Clock, DollarSign, CreditCard, Banknote, X, Briefcase, TrendingUp, Calendar, Search, FileText, Smartphone } from 'lucide-react';
 
 interface GraficaMetodosPagoProps {
   efectivo: number;
   tarjeta: number;
+  transferencia?: number;
   cargoSocio: number;
 }
 
-function GraficaMetodosPago({ efectivo, tarjeta, cargoSocio }: GraficaMetodosPagoProps) {
-  const total = efectivo + tarjeta + cargoSocio;
+function GraficaMetodosPago({ efectivo, tarjeta, transferencia = 0, cargoSocio }: GraficaMetodosPagoProps) {
+  const total = efectivo + tarjeta + transferencia + cargoSocio;
   if (total === 0) {
     return (
       <div className="bg-slate-900/40 rounded-3xl border border-slate-800 p-5 flex flex-col items-center justify-center h-48 text-slate-500 text-xs">
@@ -21,6 +22,7 @@ function GraficaMetodosPago({ efectivo, tarjeta, cargoSocio }: GraficaMetodosPag
 
   const pEfectivo = (efectivo / total) * 100;
   const pTarjeta = (tarjeta / total) * 100;
+  const pTransferencia = (transferencia / total) * 100;
   const pCargo = (cargoSocio / total) * 100;
 
   const r = 38;
@@ -28,11 +30,13 @@ function GraficaMetodosPago({ efectivo, tarjeta, cargoSocio }: GraficaMetodosPag
   
   const strokeEfectivo = (pEfectivo / 100) * circ;
   const strokeTarjeta = (pTarjeta / 100) * circ;
+  const strokeTransferencia = (pTransferencia / 100) * circ;
   const strokeCargo = (pCargo / 100) * circ;
 
   const offsetEfectivo = 0;
   const offsetTarjeta = strokeEfectivo;
-  const offsetCargo = strokeEfectivo + strokeTarjeta;
+  const offsetTransferencia = strokeEfectivo + strokeTarjeta;
+  const offsetCargo = strokeEfectivo + strokeTarjeta + strokeTransferencia;
 
   return (
     <div className="bg-slate-900/40 rounded-3xl border border-slate-800/80 p-5 flex flex-col sm:flex-row items-center gap-6">
@@ -63,6 +67,19 @@ function GraficaMetodosPago({ efectivo, tarjeta, cargoSocio }: GraficaMetodosPag
               strokeWidth="8"
               strokeDasharray={`${strokeTarjeta} ${circ}`}
               strokeDashoffset={-offsetTarjeta}
+              className="transition-all duration-500"
+            />
+          )}
+
+          {/* Transferencia (Cyan) */}
+          {strokeTransferencia > 0 && (
+            <circle
+              cx="50" cy="50" r={r}
+              fill="transparent"
+              stroke="#06b6d4"
+              strokeWidth="8"
+              strokeDasharray={`${strokeTransferencia} ${circ}`}
+              strokeDashoffset={-offsetTransferencia}
               className="transition-all duration-500"
             />
           )}
@@ -102,6 +119,13 @@ function GraficaMetodosPago({ efectivo, tarjeta, cargoSocio }: GraficaMetodosPag
               <span className="text-slate-400 font-medium">Tarjeta</span>
             </div>
             <span className="text-white font-bold">${tarjeta.toFixed(2)} ({pTarjeta.toFixed(1)}%)</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span>
+              <span className="text-slate-400 font-medium">Transferencia</span>
+            </div>
+            <span className="text-white font-bold">${transferencia.toFixed(2)} ({pTransferencia.toFixed(1)}%)</span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
@@ -209,7 +233,7 @@ export default function AdminView() {
   const [motivoAjusteStock, setMotivoAjusteStock] = useState('');
 
   // Balances
-  const [balances, setBalances] = useState({ efectivo: 0, tarjeta: 0, cargo_socio: 0 });
+  const [balances, setBalances] = useState({ efectivo: 0, tarjeta: 0, transferencia: 0, cargo_socio: 0 });
 
   // Cuentas y Adeudos
   const [cuentas, setCuentas] = useState<any[]>([]);
@@ -1044,10 +1068,11 @@ export default function AdminView() {
     return {
       efectivo: acc.efectivo + curr.efectivo_ventas,
       tarjeta: acc.tarjeta + curr.tarjeta_ventas,
+      transferencia: acc.transferencia + (curr.transferencia_ventas || 0),
       cargos: acc.cargos + curr.cargos_socios,
       netas: acc.netas + curr.ventas_netas
     };
-  }, { efectivo: 0, tarjeta: 0, cargos: 0, netas: 0 });
+  }, { efectivo: 0, tarjeta: 0, transferencia: 0, cargos: 0, netas: 0 });
 
   return (
     <div className="space-y-6 font-sans">
@@ -1247,7 +1272,7 @@ export default function AdminView() {
                 </p>
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="bg-slate-950 rounded-xl p-3 border border-slate-800">
                 <span className="text-[9px] text-slate-500 uppercase tracking-wider block font-bold">Fondo Inicial</span>
                 <span className="text-lg font-extrabold text-slate-300">${resumenCierre.fondo_inicial.toFixed(2)}</span>
@@ -1259,6 +1284,10 @@ export default function AdminView() {
               <div className="bg-slate-950 rounded-xl p-3 border border-blue-500/15">
                 <span className="text-[9px] text-blue-400 uppercase tracking-wider block font-bold">💳 Tarjeta Ventas</span>
                 <span className="text-lg font-extrabold text-blue-400">${resumenCierre.tarjeta_ventas.toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 border border-cyan-500/15">
+                <span className="text-[9px] text-cyan-400 uppercase tracking-wider block font-bold">📲 Transferencias</span>
+                <span className="text-lg font-extrabold text-cyan-400">${(resumenCierre.transferencia_ventas || 0).toFixed(2)}</span>
               </div>
               <div className="bg-slate-950 rounded-xl p-3 border border-yellow-500/15">
                 <span className="text-[9px] text-yellow-400 uppercase tracking-wider block font-bold">⛳ Cargos Socios</span>
@@ -1288,7 +1317,7 @@ export default function AdminView() {
             </div>
 
             {/* Tarjetas de balance financiero */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="bg-slate-900/60 rounded-2xl border border-emerald-500/15 p-4 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1"><Banknote size={11} className="text-emerald-400" /> Efectivo Ventas</span>
                 <h4 className="text-xl font-extrabold text-emerald-400 mt-1">${turnoData.balances.efectivo.toFixed(2)}</h4>
@@ -1307,6 +1336,11 @@ export default function AdminView() {
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1"><CreditCard size={11} className="text-blue-400" /> Tarjeta</span>
                 <h4 className="text-xl font-extrabold text-blue-400 mt-1">${turnoData.balances.tarjeta.toFixed(2)}</h4>
                 <span className="text-[8px] text-slate-500 mt-0.5">Cobrado con tarjeta</span>
+              </div>
+              <div className="bg-slate-900/60 rounded-2xl border border-cyan-500/15 p-4 flex flex-col">
+                <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1"><Smartphone size={11} className="text-cyan-400" /> Transferencia</span>
+                <h4 className="text-xl font-extrabold text-cyan-400 mt-1">${(turnoData.balances.transferencia || 0).toFixed(2)}</h4>
+                <span className="text-[8px] text-slate-500 mt-0.5">Cobrado vía transferencia</span>
               </div>
               <div className="bg-slate-900/60 rounded-2xl border border-yellow-500/15 p-4 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1">⛳ Cargos Socios</span>
@@ -1444,7 +1478,7 @@ export default function AdminView() {
           {esAdmin && (
             <>
       {/* ===== PANEL FINANCIERO DE ÁREA ===== */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">💵 Caja de Efectivo ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
@@ -1460,6 +1494,14 @@ export default function AdminView() {
             <span className="text-[9px] text-slate-500 block">Acumulado total con tarjeta</span>
           </div>
           <span className="text-3xl opacity-30">💳</span>
+        </div>
+        <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">📲 Transferencias ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
+            <h4 className="text-2xl font-extrabold text-cyan-400">${(balances.transferencia || 0).toFixed(2)} MXN</h4>
+            <span className="text-[9px] text-slate-500 block">Acumulado total transferido</span>
+          </div>
+          <span className="text-3xl opacity-30">📲</span>
         </div>
         <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
           <div className="space-y-1">
@@ -1905,6 +1947,7 @@ export default function AdminView() {
                 <GraficaMetodosPago
                   efectivo={reporteDiario.resumen.efectivo}
                   tarjeta={reporteDiario.resumen.tarjeta}
+                  transferencia={reporteDiario.resumen.transferencia}
                   cargoSocio={reporteDiario.resumen.cargo_socio}
                 />
                 <GraficaVentasArea ventas={reporteDiario.ventas} />
@@ -2011,7 +2054,7 @@ export default function AdminView() {
             </div>
 
             {/* Tarjetas de Sumatoria de Cortes */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-5">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">💵 Total Efectivo Recabado</span>
                 <span className="text-2xl font-extrabold text-emerald-400 mt-1 block">
@@ -2025,6 +2068,13 @@ export default function AdminView() {
                   ${totalesCortes.tarjeta.toFixed(2)}
                 </span>
                 <span className="text-[9px] text-slate-500 block mt-1">Suma de pagos en terminal</span>
+              </div>
+              <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-5">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">📲 Total Transferencias</span>
+                <span className="text-2xl font-extrabold text-cyan-400 mt-1 block">
+                  ${(totalesCortes.transferencia || 0).toFixed(2)}
+                </span>
+                <span className="text-[9px] text-slate-500 block mt-1">Suma de transferencias recibidas</span>
               </div>
               <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-5">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">⛳ Total Cargos a Socios</span>
@@ -2073,6 +2123,7 @@ export default function AdminView() {
                       <th className="px-3 py-3 text-right">Caja Efectivo</th>
                       <th className="px-3 py-3 text-right">Ventas Efectivo</th>
                       <th className="px-3 py-3 text-right">Ventas Tarjeta</th>
+                      <th className="px-3 py-3 text-right">Transferencias</th>
                       <th className="px-3 py-3 text-right">Cargos Socios</th>
                       <th className="px-3 py-3 text-right font-bold text-white">Ventas Netas</th>
                     </tr>
@@ -2111,6 +2162,9 @@ export default function AdminView() {
                         </td>
                         <td className="px-3 py-3 text-right font-bold text-blue-400">
                           ${t.tarjeta_ventas.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold text-cyan-400">
+                          ${(t.transferencia_ventas || 0).toFixed(2)}
                         </td>
                         <td className="px-3 py-3 text-right font-bold text-yellow-400">
                           ${t.cargos_socios.toFixed(2)}
@@ -2825,7 +2879,7 @@ export default function AdminView() {
               Esta acción <span className="font-bold">no se puede deshacer</span>.
             </p>
             {turnoData && (
-              <div className="grid grid-cols-3 gap-2 text-left bg-slate-950 rounded-xl p-3 border border-slate-800">
+              <div className="grid grid-cols-4 gap-2 text-left bg-slate-950 rounded-xl p-3 border border-slate-800">
                 <div>
                   <span className="text-[8px] text-emerald-400 uppercase font-bold block">Efectivo</span>
                   <span className="text-xs font-bold text-white">${turnoData.balances.efectivo.toFixed(2)}</span>
@@ -2833,6 +2887,10 @@ export default function AdminView() {
                 <div>
                   <span className="text-[8px] text-blue-400 uppercase font-bold block">Tarjeta</span>
                   <span className="text-xs font-bold text-white">${turnoData.balances.tarjeta.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="text-[8px] text-cyan-400 uppercase font-bold block">Transferencia</span>
+                  <span className="text-xs font-bold text-white">${(turnoData.balances.transferencia || 0).toFixed(2)}</span>
                 </div>
                 <div>
                   <span className="text-[8px] text-yellow-400 uppercase font-bold block">Cargos</span>

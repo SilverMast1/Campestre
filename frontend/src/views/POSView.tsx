@@ -2381,6 +2381,7 @@ export default function POSView() {
                               <option value="CARGO_SOCIO">Cargo a Socio</option>
                               <option value="TARJETA">Tarjeta Cred/Deb</option>
                               <option value="EFECTIVO">Efectivo</option>
+                              <option value="TRANSFERENCIA">Transferencia</option>
                               <option value="MIXTO">Mixto</option>
                             </select>
                           </div>
@@ -2464,6 +2465,7 @@ export default function POSView() {
                                 >
                                   <option value="EFECTIVO">Efectivo</option>
                                   <option value="TARJETA">Tarjeta</option>
+                                  <option value="TRANSFERENCIA">Transferencia</option>
                                 </select>
                               )}
                             </div>
@@ -2510,6 +2512,7 @@ export default function POSView() {
                                     >
                                       <option value="EFECTIVO">Efectivo</option>
                                       <option value="TARJETA">Tarjeta</option>
+                                      <option value="TRANSFERENCIA">Transferencia</option>
                                       <option value="MIXTO">Mixto</option>
                                     </select>
                                   </div>
@@ -2607,7 +2610,7 @@ export default function POSView() {
 
                 <div className="space-y-2">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Selecciona Método de Pago:</span>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                     <button
                       type="button"
                       onClick={() => setMetodoPagoDirecto('EFECTIVO')}
@@ -2631,6 +2634,18 @@ export default function POSView() {
                     >
                       <span className="text-2xl block mb-1">💳</span>
                       <span className={`text-xs font-bold block ${metodoPagoDirecto === 'TARJETA' ? 'text-blue-400' : 'text-slate-300'}`}>Tarjeta</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMetodoPagoDirecto('TRANSFERENCIA')}
+                      className={`p-4 rounded-2xl border-2 text-center transition-all duration-200 ${
+                        metodoPagoDirecto === 'TRANSFERENCIA'
+                          ? 'border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-500/10'
+                          : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="text-2xl block mb-1">📲</span>
+                      <span className={`text-xs font-bold block ${metodoPagoDirecto === 'TRANSFERENCIA' ? 'text-cyan-400' : 'text-slate-300'}`}>Transferencia</span>
                     </button>
                     <button
                       type="button"
@@ -2805,8 +2820,9 @@ export default function POSView() {
                   className={`w-full py-3.5 font-bold rounded-xl btn-premium flex justify-center items-center space-x-2 shadow-lg transition-all ${
                     metodoPagoDirecto === 'EFECTIVO' ? 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/20'
                     : metodoPagoDirecto === 'TARJETA' ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-blue-500/20'
+                    : metodoPagoDirecto === 'TRANSFERENCIA' ? 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-cyan-500/20'
                     : metodoPagoDirecto === 'MIXTO' ? 'bg-purple-500 hover:bg-purple-400 text-white shadow-purple-500/20'
-                    : 'bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 shadow-campestre-gold/20'
+                    : 'bg-yellow-500 hover:bg-yellow-400 text-slate-900 shadow-yellow-500/10'
                   }`}
                 >
                   <CreditCard size={16} />
@@ -2816,6 +2832,7 @@ export default function POSView() {
                       : `Cobrar $${totalMasAdeudos.toFixed(2)} con ${
                           metodoPagoDirecto === 'EFECTIVO' ? 'Efectivo' 
                           : metodoPagoDirecto === 'TARJETA' ? 'Tarjeta' 
+                          : metodoPagoDirecto === 'TRANSFERENCIA' ? 'Transferencia'
                           : metodoPagoDirecto === 'MIXTO' ? 'Pago Mixto'
                           : 'Cargo a Socio'
                         }`

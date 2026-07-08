@@ -969,73 +969,88 @@ export async function obtenerBalanceCaja(req: AuthenticatedRequest, res: Respons
         area_id: areaIdNum,
         cerrado_at: null
       },
+      include: {
+        cuentas: {
+          where: { estado: 'PAGADA' },
+          include: {
+            divisionesCuentas: true,
+          },
+        },
+      },
       orderBy: { id: 'desc' }
     });
 
     if (!turno) {
-      return res.json({ efectivo: 0, tarjeta: 0, cargo_socio: 0 });
+      return res.json({ efectivo: 0, tarjeta: 0, transferencia: 0, cargo_socio: 0 });
     }
 
-    // 1. Pagos divididos por socios en cuentas de este turno
-    const balancesDivisiones = await prisma.divisionCuenta.groupBy({
-      by: ['metodo_pago'],
-      where: {
-        estado_pago: 'PAGADO',
-        cuenta: {
-          turno_id: turno.id
+    let efectivo = 0;
+    let tarjeta = 0;
+    let transferencia = 0;
+    let cargo_socio = 0;
+
+    turno.cuentas.forEach(cuenta => {
+      if (cuenta.divisionesCuentas.length > 0) {
+        let sumaDivisiones = 0;
+        cuenta.divisionesCuentas.forEach(div => {
+          const monto = Number(div.monto_proporcional);
+          const metodo = div.metodo_pago;
+
+          if (metodo === 'CARGO_SOCIO') {
+            cargo_socio += monto;
+          } else if (!div.turno_pago_id) {
+            if (metodo === 'EFECTIVO') efectivo += monto;
+            else if (metodo === 'TARJETA') tarjeta += monto;
+            else if (metodo === 'TRANSFERENCIA') transferencia += monto;
+            else if (metodo === 'MIXTO') {
+              efectivo += Number(div.monto_efectivo || 0);
+              tarjeta += Number(div.monto_tarjeta || 0);
+            }
+          }
+          sumaDivisiones += monto;
+        });
+
+        // Abono directo
+        const totalCuenta = Number(cuenta.total);
+        if (cuenta.metodo_pago && totalCuenta > sumaDivisiones) {
+          const dif = totalCuenta - sumaDivisiones;
+          if (cuenta.metodo_pago === 'EFECTIVO') efectivo += dif;
+          else if (cuenta.metodo_pago === 'TARJETA') tarjeta += dif;
+          else if (cuenta.metodo_pago === 'TRANSFERENCIA') transferencia += dif;
+          else if (cuenta.metodo_pago === 'MIXTO') {
+            efectivo += Number(cuenta.monto_efectivo || 0);
+            tarjeta += Number(cuenta.monto_tarjeta || 0);
+          }
         }
-      },
-      _sum: {
-        monto_proporcional: true,
-      },
-    });
-
-    // 2. Pagos directos (sin socios/divisiones) en este turno
-    const cuentasDirectas = await prisma.cuenta.findMany({
-      where: {
-        estado: 'PAGADA',
-        metodo_pago: { not: null },
-        turno_id: turno.id
-      },
-      select: {
-        metodo_pago: true,
-        total: true,
-        monto_efectivo: true,
-        monto_tarjeta: true,
+      } else if (cuenta.metodo_pago) {
+        const total = Number(cuenta.total);
+        const metodo = cuenta.metodo_pago;
+        if (metodo === 'EFECTIVO') efectivo += total;
+        else if (metodo === 'TARJETA') tarjeta += total;
+        else if (metodo === 'TRANSFERENCIA') transferencia += total;
+        else if (metodo === 'CARGO_SOCIO') cargo_socio += total;
+        else if (metodo === 'MIXTO') {
+          efectivo += Number(cuenta.monto_efectivo || 0);
+          tarjeta += Number(cuenta.monto_tarjeta || 0);
+        }
       }
     });
 
-    const resultado = {
-      efectivo: 0,
-      tarjeta: 0,
-      cargo_socio: 0,
-    };
-
-    // Sumar divisiones
-    balancesDivisiones.forEach((item) => {
-      const metodo = item.metodo_pago;
-      const suma = Number(item._sum.monto_proporcional || 0);
-      if (metodo === 'EFECTIVO') resultado.efectivo += suma;
-      else if (metodo === 'TARJETA') resultado.tarjeta += suma;
-      else if (metodo === 'CARGO_SOCIO') resultado.cargo_socio += suma;
+    // Sumar cargos liquidados en este turno
+    const divisionesPagadasTurno = await prisma.divisionCuenta.findMany({
+      where: { turno_pago_id: turno.id },
     });
 
-    // Sumar pagos directos
-    cuentasDirectas.forEach((cuenta) => {
-      const metodo = cuenta.metodo_pago;
-      if (metodo === 'EFECTIVO') {
-        resultado.efectivo += Number(cuenta.total || 0);
-      } else if (metodo === 'TARJETA') {
-        resultado.tarjeta += Number(cuenta.total || 0);
-      } else if (metodo === 'CARGO_SOCIO') {
-        resultado.cargo_socio += Number(cuenta.total || 0);
-      } else if (metodo === 'MIXTO') {
-        resultado.efectivo += Number(cuenta.monto_efectivo || 0);
-        resultado.tarjeta += Number(cuenta.monto_tarjeta || 0);
-      }
+    divisionesPagadasTurno.forEach(div => {
+      const monto = Number(div.monto_proporcional);
+      const metodo = div.metodo_pago;
+
+      if (metodo === 'EFECTIVO') efectivo += monto;
+      else if (metodo === 'TARJETA') tarjeta += monto;
+      else if (metodo === 'TRANSFERENCIA') transferencia += monto;
     });
 
-    return res.json(resultado);
+    return res.json({ efectivo, tarjeta, transferencia, cargo_socio });
   } catch (error) {
     console.error('Error al obtener balances de caja:', error);
     return res.status(500).json({ error: 'Error al consultar balances contables' });

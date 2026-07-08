@@ -78,6 +78,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
     let efectivo = new Decimal(0);
     let tarjeta = new Decimal(0);
     let cargos = new Decimal(0);
+    let transferencia = new Decimal(0);
     const ventas: any[] = [];
 
     turno.cuentas.forEach(cuenta => {
@@ -105,6 +106,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
           else if (!div.turno_pago_id) {
             if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
             else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+            else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
             else if (metodo === 'MIXTO') {
               efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
               tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
@@ -135,6 +137,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
           const dif = totalCuenta.minus(sumaDivisiones);
           if (cuenta.metodo_pago === 'EFECTIVO') efectivo = efectivo.plus(dif);
           else if (cuenta.metodo_pago === 'TARJETA') tarjeta = tarjeta.plus(dif);
+          else if (cuenta.metodo_pago === 'TRANSFERENCIA') transferencia = transferencia.plus(dif);
           else if (cuenta.metodo_pago === 'MIXTO') {
             efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
             tarjeta = tarjeta.plus(new Decimal(cuenta.monto_tarjeta || 0));
@@ -154,6 +157,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
 
         if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
         else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+        else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
         else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
         else if (metodo === 'MIXTO') {
           efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
@@ -200,6 +204,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
 
       if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
       else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+      else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
     });
 
     const retirosOnly = turno.retiros.filter(r => r.tipo !== 'INGRESO');
@@ -220,6 +225,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
         total_ingresos: totalIngresos.toNumber(),
         total_caja_efectivo: efectivo.plus(turno.fondo_inicial).plus(totalIngresos).minus(totalRetiros).toNumber(), // Caja total con el fondo inicial + ingresos - retiros
         tarjeta: tarjeta.toNumber(),
+        transferencia: transferencia.toNumber(),
         cargo_socio: cargos.toNumber(),
       },
       ventas,
@@ -403,6 +409,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
     let efectivo = new Decimal(0);
     let tarjeta = new Decimal(0);
     let cargos = new Decimal(0);
+    let transferencia = new Decimal(0);
 
     turno.cuentas.forEach(cuenta => {
       if (cuenta.divisionesCuentas.length > 0) {
@@ -416,6 +423,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
           } else if (!div.turno_pago_id) {
             if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
             else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+            else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
             else if (metodo === 'MIXTO') {
               efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
               tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
@@ -429,6 +437,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
           const dif = totalCuenta.minus(sumaDivisiones);
           if (cuenta.metodo_pago === 'EFECTIVO') efectivo = efectivo.plus(dif);
           else if (cuenta.metodo_pago === 'TARJETA') tarjeta = tarjeta.plus(dif);
+          else if (cuenta.metodo_pago === 'TRANSFERENCIA') transferencia = transferencia.plus(dif);
           else if (cuenta.metodo_pago === 'MIXTO') {
             efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
             tarjeta = tarjeta.plus(new Decimal(cuenta.monto_tarjeta || 0));
@@ -439,6 +448,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
         const metodo = cuenta.metodo_pago;
         if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
         else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+        else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
         else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
         else if (metodo === 'MIXTO') {
           efectivo = efectivo.plus(new Decimal(cuenta.monto_efectivo || 0));
@@ -458,6 +468,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
 
       if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
       else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+      else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
     });
 
     const fondoDec = new Decimal(turno.fondo_inicial);
@@ -475,6 +486,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
         caja_efectivo: finalEfectivoCaja, // Caja de efectivo real final (fondo + ventas - retiros)
         caja_tarjeta: tarjeta,
         caja_cargos: cargos,
+        caja_transferencia: transferencia,
       },
     });
 
@@ -486,6 +498,7 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
         efectivo_ventas: efectivo.toNumber(),
         efectivo_total_entregar: efectivoTotalCaja.toNumber(),
         tarjeta_ventas: tarjeta.toNumber(),
+        transferencia_ventas: transferencia.toNumber(),
         cargos_socios_adeudos: cargos.toNumber(),
         abierto_at: turnoCerrado.abierto_at,
         cerrado_at: turnoCerrado.cerrado_at,

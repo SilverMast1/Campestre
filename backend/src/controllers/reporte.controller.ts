@@ -58,6 +58,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
     let efectivo = new Decimal(0);
     let tarjeta = new Decimal(0);
     let cargos = new Decimal(0);
+    let transferencia = new Decimal(0);
     let totalVentas = new Decimal(0);
     let totalDescuentos = new Decimal(0);
 
@@ -79,6 +80,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
           } else if (!div.turno_pago_id) {
             if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
             else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+            else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
             else if (metodo === 'MIXTO') {
               efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
               tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
@@ -99,6 +101,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
           const dif = totalCuenta.minus(sumaDivisiones);
           if (c.metodo_pago === 'EFECTIVO') efectivo = efectivo.plus(dif);
           else if (c.metodo_pago === 'TARJETA') tarjeta = tarjeta.plus(dif);
+          else if (c.metodo_pago === 'TRANSFERENCIA') transferencia = transferencia.plus(dif);
           else if (c.metodo_pago === 'MIXTO') {
             efectivo = efectivo.plus(new Decimal(c.monto_efectivo || 0));
             tarjeta = tarjeta.plus(new Decimal(c.monto_tarjeta || 0));
@@ -114,6 +117,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
         const metodo = c.metodo_pago;
         if (metodo === 'EFECTIVO') efectivo = efectivo.plus(totalCuenta);
         else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(totalCuenta);
+        else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(totalCuenta);
         else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(totalCuenta);
         else if (metodo === 'MIXTO') {
           efectivo = efectivo.plus(new Decimal(c.monto_efectivo || 0));
@@ -159,6 +163,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
 
       if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
       else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+      else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
     });
 
     return res.json({
@@ -169,6 +174,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
       resumen: {
         efectivo: efectivo.toNumber(),
         tarjeta: tarjeta.toNumber(),
+        transferencia: transferencia.toNumber(),
         cargo_socio: cargos.toNumber(),
         total_descuentos: totalDescuentos.toNumber(),
         total_ventas: totalVentas.toNumber(),
@@ -208,9 +214,10 @@ export async function obtenerReporteCortes(req: AuthenticatedRequest, res: Respo
 
       const tarjeta = new Decimal(t.caja_tarjeta);
       const cargos = new Decimal(t.caja_cargos);
+      const transferencia = new Decimal(t.caja_transferencia || 0);
       const ventasNetas = t.activo 
         ? new Decimal(0)
-        : efectivoVendido.plus(tarjeta).plus(cargos);
+        : efectivoVendido.plus(tarjeta).plus(cargos).plus(transferencia);
 
       return {
         id: t.id,
@@ -222,6 +229,7 @@ export async function obtenerReporteCortes(req: AuthenticatedRequest, res: Respo
         efectivo_total_caja: Number(cajaEfectivoTotal), // Fondo + Efectivo vendido
         efectivo_ventas: Number(efectivoVendido),
         tarjeta_ventas: Number(tarjeta),
+        transferencia_ventas: Number(transferencia),
         cargos_socios: Number(cargos),
         ventas_netas: Number(ventasNetas), // Total vendido en el turno
       };

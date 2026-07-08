@@ -255,6 +255,7 @@ model Turno {
   caja_efectivo  Decimal      @default(0.0000)
   caja_tarjeta   Decimal      @default(0.0000)
   caja_cargos    Decimal      @default(0.0000)
+  caja_transferencia Decimal  @default(0.0000)
   abierto_at     DateTime     @default(now())
   cerrado_at     DateTime?
   activo         Boolean      @default(true)
