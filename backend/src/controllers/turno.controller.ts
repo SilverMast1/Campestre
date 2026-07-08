@@ -91,22 +91,42 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
 
-          if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
-          else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
-          else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
-          else if (metodo === 'MIXTO') {
-            efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
-            tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+          // Si es CARGO_SOCIO, es un cargo generado en este turno
+          if (metodo === 'CARGO_SOCIO') {
+            cargos = cargos.plus(montoDec);
+            pagos.push({
+              cliente_id: div.cliente_id,
+              nombre: div.cliente.nombre,
+              monto: Number(montoDec),
+              metodo: div.metodo_pago,
+            });
           }
+          // Si fue pago inmediato en efectivo/tarjeta (no tiene turno_pago_id, método no es CARGO_SOCIO)
+          else if (!div.turno_pago_id) {
+            if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+            else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+            else if (metodo === 'MIXTO') {
+              efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
+              tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+            }
 
-          sumaDivisiones = sumaDivisiones.plus(montoDec);
-
-          pagos.push({
-            cliente_id: div.cliente_id,
-            nombre: div.cliente.nombre,
-            monto: Number(montoDec),
-            metodo: div.metodo_pago,
-          });
+            pagos.push({
+              cliente_id: div.cliente_id,
+              nombre: div.cliente.nombre,
+              monto: Number(montoDec),
+              metodo: div.metodo_pago,
+            });
+          }
+          // Si tiene turno_pago_id, se contará por separado en divisionesPagadasTurno
+          // Pero lo agregamos a los pagos de la cuenta para mostrar en el POS
+          else {
+            pagos.push({
+              cliente_id: div.cliente_id,
+              nombre: `${div.cliente.nombre} (Pagado después)`,
+              monto: Number(montoDec),
+              metodo: div.metodo_pago,
+            });
+          }
         });
 
         // Abono Directo (si hay diferencia y se especificó método de pago en la cuenta)
@@ -161,6 +181,27 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
       });
     });
 
+    // Fetch all divisions paid/liquidated in this shift
+    const divisionesPagadasTurno = await prisma.divisionCuenta.findMany({
+      where: { turno_pago_id: turno.id },
+      include: {
+        cliente: true,
+        cuenta: {
+          include: {
+            usuario: { select: { nombre: true } }
+          }
+        }
+      }
+    });
+
+    divisionesPagadasTurno.forEach(div => {
+      const montoDec = new Decimal(div.monto_proporcional);
+      const metodo = div.metodo_pago;
+
+      if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+      else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+    });
+
     const retirosOnly = turno.retiros.filter(r => r.tipo !== 'INGRESO');
     const ingresosOnly = turno.retiros.filter(r => r.tipo === 'INGRESO');
     const totalRetiros = retirosOnly.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
@@ -188,6 +229,14 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
         motivo: r.motivo,
         tipo: r.tipo || 'RETIRO',
         fecha: r.created_at,
+      })),
+      cargos_liquidados: divisionesPagadasTurno.map(div => ({
+        id: div.id,
+        socio: div.cliente.nombre,
+        cuenta_id: div.cuenta_id,
+        monto: Number(div.monto_proporcional),
+        metodo_pago: div.metodo_pago,
+        fecha: div.pagado_at,
       })),
     });
   } catch (error) {
@@ -361,12 +410,16 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
         cuenta.divisionesCuentas.forEach(div => {
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
-          if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
-          else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
-          else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
-          else if (metodo === 'MIXTO') {
-            efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
-            tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+          
+          if (metodo === 'CARGO_SOCIO') {
+            cargos = cargos.plus(montoDec);
+          } else if (!div.turno_pago_id) {
+            if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+            else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+            else if (metodo === 'MIXTO') {
+              efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
+              tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+            }
           }
           sumaDivisiones = sumaDivisiones.plus(montoDec);
         });
@@ -392,6 +445,19 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
           tarjeta = tarjeta.plus(new Decimal(cuenta.monto_tarjeta || 0));
         }
       }
+    });
+
+    // Fetch all divisions paid/liquidated in this shift
+    const divisionesPagadasTurno = await prisma.divisionCuenta.findMany({
+      where: { turno_pago_id: turno.id },
+    });
+
+    divisionesPagadasTurno.forEach(div => {
+      const montoDec = new Decimal(div.monto_proporcional);
+      const metodo = div.metodo_pago;
+
+      if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+      else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
     });
 
     const fondoDec = new Decimal(turno.fondo_inicial);

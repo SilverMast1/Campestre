@@ -74,18 +74,21 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
 
-          if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
-          else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
-          else if (metodo === 'CARGO_SOCIO') cargos = cargos.plus(montoDec);
-          else if (metodo === 'MIXTO') {
-            efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
-            tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+          if (metodo === 'CARGO_SOCIO') {
+            cargos = cargos.plus(montoDec);
+          } else if (!div.turno_pago_id) {
+            if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+            else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+            else if (metodo === 'MIXTO') {
+              efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
+              tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+            }
           }
 
           sumaDivisiones = sumaDivisiones.plus(montoDec);
 
           pagos.push({
-            nombre: div.cliente.nombre,
+            nombre: div.cliente.nombre + (div.turno_pago_id ? ' (Pagado después)' : ''),
             monto: Number(montoDec),
             metodo,
           });
@@ -136,6 +139,28 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
       };
     });
 
+    const divisionesPagadasHoy = await prisma.divisionCuenta.findMany({
+      where: {
+        estado_pago: 'PAGADO',
+        pagado_at: {
+          gte: inicioDia,
+          lte: finDia,
+        },
+        turno_pago_id: { not: null },
+      },
+      include: {
+        cliente: true,
+      }
+    });
+
+    divisionesPagadasHoy.forEach(div => {
+      const montoDec = new Decimal(div.monto_proporcional);
+      const metodo = div.metodo_pago;
+
+      if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+      else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+    });
+
     return res.json({
       fecha: fechaStr,
       rango,
@@ -149,6 +174,14 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
         total_ventas: totalVentas.toNumber(),
       },
       ventas,
+      cargos_liquidados: divisionesPagadasHoy.map(div => ({
+        id: div.id,
+        socio: div.cliente.nombre,
+        cuenta_id: div.cuenta_id,
+        monto: Number(div.monto_proporcional),
+        metodo_pago: div.metodo_pago,
+        fecha: div.pagado_at,
+      })),
     });
   } catch (error: any) {
     console.error('Error al generar reporte diario:', error);

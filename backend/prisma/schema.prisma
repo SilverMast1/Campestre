@@ -238,8 +238,10 @@ model DivisionCuenta {
   monto_tarjeta            Decimal   @default(0.0000)
   estado_pago              String    @default("PENDIENTE")
   pagado_at                DateTime?
+  turno_pago_id            Int?
   cuenta                   Cuenta    @relation(fields: [cuenta_id], references: [id], onDelete: Restrict)
   cliente                  Cliente   @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  turno_pago               Turno?    @relation(fields: [turno_pago_id], references: [id], onDelete: SetNull)
 
   @@unique([cuenta_id, cliente_id], name: "uq_cuenta_cliente_division")
   @@map("divisiones_cuentas")
@@ -260,6 +262,7 @@ model Turno {
   area           Area?        @relation(fields: [area_id], references: [id], onDelete: Restrict)
   cuentas        Cuenta[]
   retiros        RetiroCaja[]
+  divisiones_pagadas DivisionCuenta[]
 
   @@map("turnos")
 }

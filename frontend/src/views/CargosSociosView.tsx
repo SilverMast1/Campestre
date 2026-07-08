@@ -29,7 +29,7 @@ interface CargoDetalle {
 }
 
 export default function CargosSociosView() {
-  const { token } = useStore();
+  const { token, areaId } = useStore();
   const [socios, setSocios] = useState<SocioCargo[]>([]);
   const [filtro, setFiltro] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -43,11 +43,11 @@ export default function CargosSociosView() {
   const [mostrarModalDetalle, setMostrarModalDetalle] = useState(false);
   const [divisionesSeleccionadas, setDivisionesSeleccionadas] = useState<string[]>([]);
 
-  // Estados para Modal de Liquidación
   const [mostrarModalLiquidar, setMostrarModalLiquidar] = useState(false);
   const [metodoPagoLiquidar, setMetodoPagoLiquidar] = useState<'EFECTIVO' | 'TARJETA'>('EFECTIVO');
   const [liquidando, setLiquidando] = useState(false);
   const [liquidarTodoSocio, setLiquidarTodoSocio] = useState<SocioCargo | null>(null);
+  const [pagaCon, setPagaCon] = useState('');
 
   // Estados para Modal de Borrado (Cancelar Adeudos)
   const [mostrarModalBorrar, setMostrarModalBorrar] = useState(false);
@@ -127,6 +127,7 @@ export default function CargosSociosView() {
   const abrirLiquidarTodo = (socio: SocioCargo) => {
     setLiquidarTodoSocio(socio);
     setMetodoPagoLiquidar('EFECTIVO');
+    setPagaCon('');
     setMostrarModalLiquidar(true);
   };
 
@@ -134,6 +135,7 @@ export default function CargosSociosView() {
     if (divisionesSeleccionadas.length === 0) return;
     setLiquidarTodoSocio(null);
     setMetodoPagoLiquidar('EFECTIVO');
+    setPagaCon('');
     setMostrarModalLiquidar(true);
   };
 
@@ -159,6 +161,7 @@ export default function CargosSociosView() {
         body: JSON.stringify({
           metodo_pago: metodoPagoLiquidar,
           divisionesIds,
+          area_id: areaId,
         }),
       });
 
@@ -613,6 +616,60 @@ export default function CargosSociosView() {
                 <span>Tarjeta Bancaria</span>
               </button>
             </div>
+
+            {metodoPagoLiquidar === 'EFECTIVO' && (() => {
+              const montoALiquidar = liquidarTodoSocio 
+                ? liquidarTodoSocio.saldo_pendiente 
+                : totalSeleccionado;
+              return (
+                <div className="space-y-3 mb-6 p-4 bg-slate-900/40 border border-slate-800 rounded-2xl">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-semibold text-slate-450">Paga con ($):</label>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      value={pagaCon}
+                      onChange={(e) => setPagaCon(e.target.value)}
+                      className="w-32 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white text-right outline-none focus:border-campestre-green"
+                    />
+                  </div>
+                  
+                  {/* Botones rápidos */}
+                  <div className="flex flex-wrap gap-1.5 justify-end">
+                    <button
+                      key="exact"
+                      type="button"
+                      onClick={() => setPagaCon(montoALiquidar.toFixed(2))}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg text-[10px] font-bold border border-slate-700 transition-colors"
+                    >
+                      Exacto
+                    </button>
+                    {[50, 100, 200, 500, 1000].filter(val => val >= montoALiquidar).map(val => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setPagaCon(val.toString())}
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg text-[10px] font-bold border border-slate-700 transition-colors"
+                      >
+                        ${val}
+                      </button>
+                    ))}
+                  </div>
+
+                  {parseFloat(pagaCon) > 0 && (
+                    <div className="flex justify-between items-center pt-2 border-t border-slate-800/80">
+                      <span className="text-xs font-semibold text-slate-455">Cambio:</span>
+                      <span className={`text-sm font-extrabold ${parseFloat(pagaCon) >= montoALiquidar ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {parseFloat(pagaCon) >= montoALiquidar 
+                          ? `$${(parseFloat(pagaCon) - montoALiquidar).toFixed(2)}`
+                          : `Faltan $${(montoALiquidar - parseFloat(pagaCon)).toFixed(2)}`
+                        }
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="flex space-x-3">
               <button

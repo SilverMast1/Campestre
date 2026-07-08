@@ -352,7 +352,7 @@ export async function obtenerDetalleCargosSocio(req: AuthenticatedRequest, res: 
 // 10. Liquidar cargos de un socio (registrar pago real)
 export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Response) {
   const socioId = parseInt(req.params.socioId);
-  const { metodo_pago, divisionesIds } = req.body;
+  const { metodo_pago, divisionesIds, area_id } = req.body;
 
   if (isNaN(socioId)) {
     return res.status(400).json({ error: 'ID de socio inválido' });
@@ -373,18 +373,37 @@ export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Respon
       whereClause.id = { in: parsedIds };
     }
 
-    const result = await prisma.divisionCuenta.updateMany({
+    let turnoActivoId: number | null = null;
+    const activeShift = await prisma.turno.findFirst({
+      where: { activo: true, ...(area_id ? { area_id: Number(area_id) } : {}) },
+    });
+    if (activeShift) {
+      turnoActivoId = activeShift.id;
+    }
+
+    const divisiones = await prisma.divisionCuenta.findMany({
       where: whereClause,
-      data: {
-        metodo_pago: metodo_pago,
-        estado_pago: 'PAGADO',
-        pagado_at: new Date(),
-      },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      for (const div of divisiones) {
+        await tx.divisionCuenta.update({
+          where: { id: div.id },
+          data: {
+            metodo_pago: metodo_pago,
+            estado_pago: 'PAGADO',
+            pagado_at: new Date(),
+            monto_efectivo: metodo_pago === 'EFECTIVO' ? div.monto_proporcional : 0.0,
+            monto_tarjeta: metodo_pago === 'TARJETA' ? div.monto_proporcional : 0.0,
+            turno_pago_id: turnoActivoId,
+          },
+        });
+      }
     });
 
     return res.json({
       message: 'Cargos liquidados correctamente',
-      cargos_actualizados: result.count,
+      cargos_actualizados: divisiones.length,
     });
   } catch (error) {
     console.error('Error al liquidar cargos de socio:', error);

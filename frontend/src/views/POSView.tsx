@@ -1049,6 +1049,8 @@ export default function POSView() {
           let metodoLiquidar = metodoPagoDirecto;
           if (metodoLiquidar === 'CARGO_SOCIO') {
             metodoLiquidar = 'EFECTIVO';
+          } else if (metodoLiquidar === 'MIXTO') {
+            metodoLiquidar = Number(montoTarjetaMixto || 0) > 0 ? 'TARJETA' : 'EFECTIVO';
           }
 
           const resLiq = await fetch(`/api/pos/socios/${clienteId}/cargos/liquidar`, {
@@ -1060,6 +1062,7 @@ export default function POSView() {
             body: JSON.stringify({
               metodo_pago: metodoLiquidar,
               divisionesIds,
+              area_id: areaId,
             }),
           });
           
@@ -1153,6 +1156,9 @@ export default function POSView() {
           let metodoLiquidar = metodosPago[d.cliente_id];
           if (!metodoLiquidar || metodoLiquidar === 'CARGO_SOCIO') {
             metodoLiquidar = metodosPagoLiquidacion[d.cliente_id] || 'EFECTIVO';
+          } else if (metodoLiquidar === 'MIXTO') {
+            const cardAmt = Number(montoTarjetaMixtoSocio[d.cliente_id] || 0);
+            metodoLiquidar = cardAmt > 0 ? 'TARJETA' : 'EFECTIVO';
           }
 
           const resLiq = await fetch(`/api/pos/socios/${d.cliente_id}/cargos/liquidar`, {
@@ -1164,6 +1170,7 @@ export default function POSView() {
             body: JSON.stringify({
               metodo_pago: metodoLiquidar,
               divisionesIds,
+              area_id: areaId,
             }),
           });
           
