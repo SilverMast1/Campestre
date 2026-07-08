@@ -161,7 +161,10 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
       });
     });
 
-    const totalRetiros = turno.retiros.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const retirosOnly = turno.retiros.filter(r => r.tipo !== 'INGRESO');
+    const ingresosOnly = turno.retiros.filter(r => r.tipo === 'INGRESO');
+    const totalRetiros = retirosOnly.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const totalIngresos = ingresosOnly.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
 
     return res.json({
       activo: true,
@@ -173,7 +176,8 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
       balances: {
         efectivo: efectivo.toNumber(),
         total_retiros: totalRetiros.toNumber(),
-        total_caja_efectivo: efectivo.plus(turno.fondo_inicial).minus(totalRetiros).toNumber(), // Caja total con el fondo inicial menos retiros
+        total_ingresos: totalIngresos.toNumber(),
+        total_caja_efectivo: efectivo.plus(turno.fondo_inicial).plus(totalIngresos).minus(totalRetiros).toNumber(), // Caja total con el fondo inicial + ingresos - retiros
         tarjeta: tarjeta.toNumber(),
         cargo_socio: cargos.toNumber(),
       },
@@ -182,6 +186,7 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
         id: r.id,
         monto: Number(r.monto),
         motivo: r.motivo,
+        tipo: r.tipo || 'RETIRO',
         fecha: r.created_at,
       })),
     });
@@ -391,8 +396,9 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
 
     const fondoDec = new Decimal(turno.fondo_inicial);
     const efectivoTotalCaja = efectivo.plus(fondoDec);
-    const totalRetiros = turno.retiros.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
-    const finalEfectivoCaja = efectivoTotalCaja.minus(totalRetiros);
+    const totalRetiros = turno.retiros.filter(r => r.tipo !== 'INGRESO').reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const totalIngresos = turno.retiros.filter(r => r.tipo === 'INGRESO').reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const finalEfectivoCaja = efectivoTotalCaja.plus(totalIngresos).minus(totalRetiros);
 
     // Actualizar el turno para marcarlo inactivo y guardar los arqueos
     const turnoCerrado = await prisma.turno.update({
@@ -471,8 +477,9 @@ export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Respon
       }
     });
 
-    const totalRetirosPrevios = turnoActivo.retiros.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
-    const efectivoDisponible = efectivoVentas.plus(turnoActivo.fondo_inicial).minus(totalRetirosPrevios);
+    const totalRetirosPrevios = turnoActivo.retiros.filter(r => r.tipo !== 'INGRESO').reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const totalIngresosPrevios = turnoActivo.retiros.filter(r => r.tipo === 'INGRESO').reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+    const efectivoDisponible = efectivoVentas.plus(turnoActivo.fondo_inicial).plus(totalIngresosPrevios).minus(totalRetirosPrevios);
 
     if (montoDec.greaterThan(efectivoDisponible)) {
       return res.status(400).json({ 
@@ -485,6 +492,7 @@ export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Respon
         turno_id: turnoActivo.id,
         monto: montoDec,
         motivo: motivo.trim(),
+        tipo: 'RETIRO',
       },
     });
 
@@ -494,11 +502,60 @@ export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Respon
         id: nuevoRetiro.id,
         monto: Number(nuevoRetiro.monto),
         motivo: nuevoRetiro.motivo,
+        tipo: nuevoRetiro.tipo,
         fecha: nuevoRetiro.created_at,
       },
     });
   } catch (error) {
     console.error('Error al registrar retiro de caja:', error);
     return res.status(500).json({ error: 'Error al procesar el retiro de efectivo de caja' });
+  }
+}
+
+// 5. Registrar un ingreso de efectivo a la caja activa
+export async function registrarIngresoCaja(req: AuthenticatedRequest, res: Response) {
+  const { monto, motivo, area_id } = req.body;
+
+  if (monto === undefined || isNaN(parseFloat(monto)) || parseFloat(monto) <= 0) {
+    return res.status(400).json({ error: 'Monto de ingreso válido requerido' });
+  }
+
+  if (!motivo || motivo.trim() === '') {
+    return res.status(400).json({ error: 'Motivo del ingreso requerido' });
+  }
+
+  try {
+    const turnoActivo = await prisma.turno.findFirst({
+      where: { activo: true, ...(area_id ? { area_id: Number(area_id) } : {}) },
+    });
+
+    if (!turnoActivo) {
+      return res.status(400).json({ error: 'No hay un turno activo abierto para registrar el ingreso' });
+    }
+
+    const montoDec = new Decimal(monto);
+
+    const nuevoIngreso = await prisma.retiroCaja.create({
+      data: {
+        turno_id: turnoActivo.id,
+        monto: montoDec,
+        motivo: motivo.trim(),
+        tipo: 'INGRESO',
+      },
+    });
+
+    return res.json({
+      message: 'Ingreso de caja registrado correctamente',
+      ingreso: {
+        id: nuevoIngreso.id,
+        monto: Number(nuevoIngreso.monto),
+        motivo: nuevoIngreso.motivo,
+        tipo: nuevoIngreso.tipo,
+        fecha: nuevoIngreso.created_at,
+      },
+    });
+  } catch (error) {
+    console.error('Error al registrar ingreso de caja:', error);
+    return res.status(500).json({ error: 'Error al procesar el ingreso de efectivo de caja' });
   }
 }

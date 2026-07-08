@@ -14,7 +14,7 @@ import { loginInterno, loginCliente, crearClientePorStaff, buscarSociosPublico, 
 import { listarProductosPorArea, abrirCuenta, guardarConsumos, previsualizarSplit, pagarYCerrarCuenta, ajustarStockArea, obtenerBalanceCaja, listarTodasLasCuentas, eliminarCuenta, resetearDatos, crearProducto, actualizarMetodoPagoCuenta, transferirStock, listarTodosLosProductos, registrarMermaStock, listarMermas, eliminarProducto, fusionarCuentas } from './controllers/pos.controller';
 import { crearCadi, eliminarCadi, listarCadis, listarCadisActivos, asignarClientesACadi, liberarCadi } from './controllers/cadi.controller';
 import { obtenerPerfilSocio, listarConsumosSocio, regenerarTokenQR, buscarSocioPorQR, buscarSocios, eliminarSocio, listarSocios, listarCargosSocios, obtenerDetalleCargosSocio, liquidarCargosSocio, borrarCargosSocio, obtenerCuentaActivaSocio, actualizarSocio } from './controllers/cliente.controller';
-import { abrirTurno, obtenerTurnoActivo, cerrarTurno, registrarRetiroCaja } from './controllers/turno.controller';
+import { abrirTurno, obtenerTurnoActivo, cerrarTurno, registrarRetiroCaja, registrarIngresoCaja } from './controllers/turno.controller';
 import { obtenerReporteDiario, obtenerReporteCortes } from './controllers/reporte.controller';
 import { listarInsumos, crearInsumo, actualizarInsumo, eliminarInsumo, guardarReceta, obtenerReceta } from './controllers/insumo.controller';
 import { registrarGastoIngreso, obtenerReporteSemanalGastos, eliminarGastoIngreso } from './controllers/gastos.controller';
@@ -139,6 +139,7 @@ app.post('/api/admin/turno/abrir', authenticateJWT, requireRoles(['ADMIN', 'VEND
 app.get('/api/admin/turno/activo', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), obtenerTurnoActivo);
 app.post('/api/admin/turno/cerrar', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), cerrarTurno);
 app.post('/api/admin/turno/retiro', authenticateJWT, requireRoles(['ADMIN']), registrarRetiroCaja);
+app.post('/api/admin/turno/ingreso', authenticateJWT, requireRoles(['ADMIN']), registrarIngresoCaja);
 
 // 2.7 Reportes (Solo Administradores)
 app.get('/api/admin/reportes/diario', authenticateJWT, requireRoles(['ADMIN']), obtenerReporteDiario);

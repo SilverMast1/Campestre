@@ -1315,10 +1315,10 @@ export default function POSView() {
     const nombreNormalizado = prod.nombre?.toLowerCase().trim() || '';
     if (nombreNormalizado === 'agua mineral grande') return false;
 
-    // Si no es BAR (areaId === 1), excluir comidas, cenas, desayunos, niños y tacos de guisos
+    // Si no es BAR (areaId === 1) ni SNACK (areaId === 2), excluir comidas, cenas, desayunos, niños y tacos de guisos
     const categoriaNormalizada = prod.categoria?.toLowerCase().trim() || '';
     const esExcluido = ['comida', 'comidas', 'cenas', 'desayunos', 'niños', 'tacos de guisos'].includes(categoriaNormalizada);
-    if (areaId !== 1 && esExcluido) return false;
+    if (areaId !== 1 && areaId !== 2 && esExcluido) return false;
 
     if (busquedaProducto.trim() !== '') {
       const q = busquedaProducto.toLowerCase().trim();
@@ -1604,7 +1604,7 @@ export default function POSView() {
                 { id: 'tequilas', label: 'Tequilas 🌵' },
                 { id: 'whisky', label: 'Whisky 🥃' },
               ].filter((cat) => {
-                if (areaId !== 1) {
+                if (areaId !== 1 && areaId !== 2) {
                   const esExcluido = ['comida', 'comidas', 'cenas', 'desayunos', 'niños', 'tacos de guisos'].includes(cat.id.toLowerCase());
                   return !esExcluido;
                 }

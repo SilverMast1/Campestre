@@ -269,6 +269,7 @@ model RetiroCaja {
   turno_id    Int
   monto       Decimal
   motivo      String
+  tipo        String   @default("RETIRO") // "RETIRO" o "INGRESO"
   created_at  DateTime @default(now())
   turno       Turno    @relation(fields: [turno_id], references: [id], onDelete: Cascade)
 

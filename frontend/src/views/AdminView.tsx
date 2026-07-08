@@ -231,6 +231,12 @@ export default function AdminView() {
   const [motivoRetiro, setMotivoRetiro] = useState('');
   const [cargandoRetiro, setCargandoRetiro] = useState(false);
 
+  // Ingresos de caja
+  const [mostrarModalIngreso, setMostrarModalIngreso] = useState(false);
+  const [montoIngreso, setMontoIngreso] = useState('');
+  const [motivoIngreso, setMotivoIngreso] = useState('');
+  const [cargandoIngreso, setCargandoIngreso] = useState(false);
+
   // Nuevo Producto
   const [mostrarFormProducto, setMostrarFormProducto] = useState(false);
   const [npNombre, setNpNombre] = useState('');
@@ -778,6 +784,41 @@ export default function AdminView() {
     }
   };
 
+  const handleRegistrarIngreso = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setSuccess(''); setCargandoIngreso(true);
+    const monto = parseFloat(montoIngreso);
+    if (isNaN(monto) || monto <= 0) {
+      setError('El monto de ingreso debe ser un número positivo');
+      setCargandoIngreso(false);
+      return;
+    }
+    if (!motivoIngreso.trim()) {
+      setError('Debes ingresar un motivo para el ingreso de caja');
+      setCargandoIngreso(false);
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/turno/ingreso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ monto, motivo: motivoIngreso, area_id: areaTurnoAdmin }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al registrar ingreso');
+      setSuccess('Ingreso de caja registrado correctamente.');
+      setMostrarModalIngreso(false);
+      setMontoIngreso('');
+      setMotivoIngreso('');
+      cargarTurnoActivo();
+      cargarBalances();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCargandoIngreso(false);
+    }
+  };
+
   const handleGuardarAjusteStock = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(''); setSuccess(''); setCargando(true);
@@ -1258,6 +1299,7 @@ export default function AdminView() {
                 <h4 className="text-xl font-extrabold text-campestre-gold mt-1">${turnoData.balances.total_caja_efectivo.toFixed(2)}</h4>
                 <span className="text-[8px] text-slate-500 mt-0.5">
                   Fondo + ventas
+                  {turnoData.balances.total_ingresos > 0 && ` + ingresos ($${turnoData.balances.total_ingresos.toFixed(2)})`}
                   {turnoData.balances.total_retiros > 0 && ` - retiros ($${turnoData.balances.total_retiros.toFixed(2)})`}
                 </span>
               </div>
@@ -1315,13 +1357,13 @@ export default function AdminView() {
             )}
 
             {/* Historial de retiros del turno */}
-            {turnoData.retiros && turnoData.retiros.length > 0 && (
+            {turnoData.retiros && turnoData.retiros.filter((r: any) => r.tipo !== 'INGRESO').length > 0 && (
               <div className="space-y-2 mt-4 pt-4 border-t border-slate-800/60">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                   💸 Retiros de Caja (Salidas de Efectivo)
                 </span>
                 <div className="max-h-32 overflow-y-auto space-y-2 pr-1">
-                  {turnoData.retiros.map((r: any) => (
+                  {turnoData.retiros.filter((r: any) => r.tipo !== 'INGRESO').map((r: any) => (
                     <div key={r.id} className="bg-slate-900/40 border border-amber-500/10 rounded-xl px-4 py-3 flex justify-between items-center">
                       <div className="space-y-0.5">
                         <span className="text-xs text-white font-bold block">Retiro #{r.id}</span>
@@ -1339,17 +1381,52 @@ export default function AdminView() {
               </div>
             )}
 
+            {/* Historial de ingresos del turno */}
+            {turnoData.retiros && turnoData.retiros.filter((r: any) => r.tipo === 'INGRESO').length > 0 && (
+              <div className="space-y-2 mt-4 pt-4 border-t border-slate-800/60">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  📥 Ingresos de Caja (Entradas de Efectivo)
+                </span>
+                <div className="max-h-32 overflow-y-auto space-y-2 pr-1">
+                  {turnoData.retiros.filter((r: any) => r.tipo === 'INGRESO').map((r: any) => (
+                    <div key={r.id} className="bg-slate-900/40 border border-emerald-500/10 rounded-xl px-4 py-3 flex justify-between items-center">
+                      <div className="space-y-0.5">
+                        <span className="text-xs text-white font-bold block">Ingreso #{r.id}</span>
+                        <span className="text-[10px] text-slate-400 block">Motivo: {r.motivo}</span>
+                        <span className="text-[8px] text-slate-500 block">
+                          Hora: {new Date(r.fecha).toLocaleTimeString('es-MX', { timeStyle: 'short' })}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-extrabold text-emerald-400 block">+${r.monto.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Botones de Turno */}
             <div className="flex flex-col sm:flex-row gap-2 pt-2">
               {esAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setMostrarModalRetiro(true)}
-                  className="flex-1 py-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-bold rounded-xl text-xs border border-amber-500/25 transition-colors flex items-center justify-center gap-2"
-                >
-                  <DollarSign size={14} />
-                  Retirar Efectivo
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarModalIngreso(true)}
+                    className="flex-1 py-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold rounded-xl text-xs border border-emerald-500/25 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus size={14} />
+                    Agregar Efectivo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarModalRetiro(true)}
+                    className="flex-1 py-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-bold rounded-xl text-xs border border-amber-500/25 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <DollarSign size={14} />
+                    Retirar Efectivo
+                  </button>
+                </>
               )}
               <button
                 type="button"
@@ -2824,6 +2901,57 @@ export default function AdminView() {
                     </>
                   ) : (
                     <span>Registrar Salida</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MODAL INGRESO DE EFECTIVO ===== */}
+      {mostrarModalIngreso && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 space-y-4">
+            <h4 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+              <span>📥</span><span>Registrar Ingreso de Efectivo a Caja</span>
+            </h4>
+            <p className="text-xs text-slate-400">
+              Agregar dinero a la caja activa. El monto se sumará al efectivo total a entregar en el corte de este turno.
+            </p>
+            <form onSubmit={handleRegistrarIngreso} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Monto a Ingresar ($):</label>
+                <input type="number" required min={0.01} step="0.01" placeholder="0.00"
+                  value={montoIngreso} onChange={e => setMontoIngreso(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Comentario / Motivo del Ingreso:</label>
+                <textarea placeholder="Explica detalladamente por qué ingresas este dinero (ej. Aportación de cambio, Fondo extra, etc.)..."
+                  required
+                  value={motivoIngreso} onChange={e => setMotivoIngreso(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500 h-24 resize-none"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button"
+                  onClick={() => { setMostrarModalIngreso(false); setMontoIngreso(''); setMotivoIngreso(''); }}
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold rounded-xl text-xs transition-colors border border-slate-700"
+                >
+                  Cancelar
+                </button>
+                <button type="submit" disabled={cargandoIngreso}
+                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/10"
+                >
+                  {cargandoIngreso ? (
+                    <>
+                      <RefreshCw size={12} className="animate-spin" />
+                      <span>Registrando...</span>
+                    </>
+                  ) : (
+                    <span>Registrar Entrada</span>
                   )}
                 </button>
               </div>
