@@ -7,7 +7,6 @@
   NODE_VERSION = "18"
 
 [functions]
-  external_node_modules = ["@prisma/client", ".prisma", "bcrypt", "better-sqlite3"]
   included_files = ["node_modules/.prisma/**", "node_modules/@prisma/**", "backend/node_modules/.prisma/**"]
 
 [[redirects]]

@@ -1,7 +1,15 @@
 import { Request, Response } from 'express';
-// Usar bcrypt nativo (local) o bcryptjs puro (serverless/Netlify)
+// Usar bcryptjs en entorno Netlify/serverless para evitar fallos de módulos nativos C++
 let bcrypt: any;
-try { bcrypt = require('bcrypt'); } catch { bcrypt = require('bcryptjs'); }
+try {
+  if (process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    bcrypt = require('bcryptjs');
+  } else {
+    bcrypt = require('bcrypt');
+  }
+} catch {
+  bcrypt = require('bcryptjs');
+}
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../db';
@@ -60,9 +68,9 @@ export async function loginInterno(req: AuthenticatedRequest, res: Response) {
         roles: rolesNombres,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error en loginInterno:', error);
-    return res.status(500).json({ error: 'Error interno del servidor' });
+    return res.status(500).json({ error: error.message || 'Error interno del servidor' });
   }
 }
 
