@@ -46,8 +46,7 @@ export async function loginInterno(req: AuthenticatedRequest, res: Response) {
         type: 'INTERNAL',
         roles: rolesNombres,
       },
-      JWT_SECRET,
-      { expiresIn: '8h' }
+      JWT_SECRET
     );
 
     return res.json({
@@ -94,8 +93,7 @@ export async function loginCliente(req: AuthenticatedRequest, res: Response) {
         email: cliente.email || '',
         type: 'CLIENT',
       },
-      JWT_SECRET,
-      { expiresIn: '24h' }
+      JWT_SECRET
     );
 
     return res.json({
@@ -181,7 +179,7 @@ export async function buscarSociosPublico(req: Request, res: Response) {
     const socios = await prisma.cliente.findMany({
       where: {
         activo: true,
-        nombre: { contains: query },
+        nombre: { contains: query, mode: 'insensitive' },
       },
       select: {
         id: true,

@@ -166,8 +166,8 @@ export async function buscarSocios(req: AuthenticatedRequest, res: Response) {
       where: {
         activo: true,
         OR: [
-          { nombre: { contains: query } },
-          { codigo_socio: { contains: query } },
+          { nombre: { contains: query, mode: 'insensitive' } },
+          { codigo_socio: { contains: query, mode: 'insensitive' } },
         ],
       },
       select: {
@@ -271,10 +271,9 @@ export async function listarCargosSocios(req: AuthenticatedRequest, res: Respons
     });
 
     const resultado = sociosConCargos.map((socio) => {
-      const saldoPendiente = socio.divisionesCuentas.reduce(
-        (sum, div) => sum.plus(new Decimal(div.monto_proporcional)),
-        new Decimal(0)
-      );
+      const saldoPendiente = socio.divisionesCuentas
+        .filter(div => div.estado_pago === 'PENDIENTE')
+        .reduce((sum, div) => sum.plus(new Decimal(div.monto_proporcional)), new Decimal(0));
       return {
         id: socio.id,
         codigo_socio: socio.codigo_socio,
@@ -311,6 +310,7 @@ export async function obtenerDetalleCargosSocio(req: AuthenticatedRequest, res: 
           include: {
             area: true,
             usuario: { select: { nombre: true } },
+            cadi: true,
             detalleCuentas: {
               include: {
                 producto: true,
@@ -333,11 +333,15 @@ export async function obtenerDetalleCargosSocio(req: AuthenticatedRequest, res: 
         monto: Number(div.monto_proporcional),
         porcentaje_participacion: Number(div.porcentaje_participacion),
         total_cuenta: Number(cuenta.total),
+        cadi: cuenta.cadi ? `${cuenta.cadi.numero_cadi} - ${cuenta.cadi.nombre}` : null,
         productos: cuenta.detalleCuentas.map((dc) => ({
+          id: dc.producto.id,
+          detalle_id: dc.id,
           nombre: dc.producto.nombre,
           cantidad: Number(dc.cantidad),
           precio: Number(dc.precio_unitario),
           subtotal: Number(dc.subtotal),
+          created_at: dc.created_at,
         })),
       };
     });
@@ -352,7 +356,7 @@ export async function obtenerDetalleCargosSocio(req: AuthenticatedRequest, res: 
 // 10. Liquidar cargos de un socio (registrar pago real)
 export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Response) {
   const socioId = parseInt(req.params.socioId);
-  const { metodo_pago, divisionesIds, area_id } = req.body;
+  const { metodo_pago, divisionesIds, area_id, abono_monto } = req.body;
 
   if (isNaN(socioId)) {
     return res.status(400).json({ error: 'ID de socio inválido' });
@@ -366,6 +370,7 @@ export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Respon
     const whereClause: any = {
       cliente_id: socioId,
       metodo_pago: 'CARGO_SOCIO',
+      estado_pago: 'PENDIENTE',
     };
 
     if (Array.isArray(divisionesIds) && divisionesIds.length > 0) {
@@ -383,26 +388,103 @@ export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Respon
 
     const divisiones = await prisma.divisionCuenta.findMany({
       where: whereClause,
+      include: { cuenta: true },
+      orderBy: { id: 'asc' },
     });
+
+    const esAbonoParcial = abono_monto !== undefined && abono_monto !== null && Number(abono_monto) > 0;
+    let abonoRestante = esAbonoParcial ? new Decimal(abono_monto) : null;
 
     await prisma.$transaction(async (tx) => {
       for (const div of divisiones) {
-        await tx.divisionCuenta.update({
-          where: { id: div.id },
-          data: {
-            metodo_pago: metodo_pago,
-            estado_pago: 'PAGADO',
-            pagado_at: new Date(),
-            monto_efectivo: metodo_pago === 'EFECTIVO' ? div.monto_proporcional : 0.0,
-            monto_tarjeta: metodo_pago === 'TARJETA' ? div.monto_proporcional : 0.0,
-            turno_pago_id: turnoActivoId,
-          },
-        });
+        const montoDiv = new Decimal(div.monto_proporcional);
+
+        if (abonoRestante !== null) {
+          if (abonoRestante.lessThanOrEqualTo(0)) {
+            break; // Ya se aplicó todo el abono
+          }
+
+          if (abonoRestante.greaterThanOrEqualTo(montoDiv)) {
+            // Se liquida el 100% de esta división
+            await tx.divisionCuenta.update({
+              where: { id: div.id },
+              data: {
+                metodo_pago: metodo_pago,
+                estado_pago: 'PAGADO',
+                pagado_at: new Date(),
+                monto_efectivo: metodo_pago === 'EFECTIVO' ? montoDiv : 0.0,
+                monto_tarjeta: metodo_pago === 'TARJETA' ? montoDiv : 0.0,
+                turno_pago_id: turnoActivoId,
+              },
+            });
+            abonoRestante = abonoRestante.minus(montoDiv);
+          } else {
+            // Abono parcial dentro de esta división:
+            const montoPagoParcial = abonoRestante;
+            const montoRestanteDeuda = montoDiv.minus(montoPagoParcial);
+            const totalCuenta = new Decimal(div.cuenta?.total || div.monto_proporcional);
+
+            const porcentajePagado = totalCuenta.greaterThan(0)
+              ? montoPagoParcial.div(totalCuenta).mul(100)
+              : new Decimal(0);
+            const porcentajeRestante = totalCuenta.greaterThan(0)
+              ? montoRestanteDeuda.div(totalCuenta).mul(100)
+              : new Decimal(0);
+
+            // 1. Actualizar la división actual como pagada con la fracción abonada
+            await tx.divisionCuenta.update({
+              where: { id: div.id },
+              data: {
+                porcentaje_participacion: porcentajePagado,
+                monto_proporcional: montoPagoParcial,
+                metodo_pago: metodo_pago,
+                estado_pago: 'PAGADO',
+                pagado_at: new Date(),
+                monto_efectivo: metodo_pago === 'EFECTIVO' ? montoPagoParcial : 0.0,
+                monto_tarjeta: metodo_pago === 'TARJETA' ? montoPagoParcial : 0.0,
+                turno_pago_id: turnoActivoId,
+              },
+            });
+
+            // 2. Crear la división equivalente pendiente por el remanente
+            await tx.divisionCuenta.create({
+              data: {
+                cuenta_id: div.cuenta_id,
+                cliente_id: div.cliente_id,
+                porcentaje_participacion: porcentajeRestante,
+                monto_proporcional: montoRestanteDeuda,
+                metodo_pago: 'CARGO_SOCIO',
+                estado_pago: 'PENDIENTE',
+                pagado_at: null,
+              },
+            });
+
+            abonoRestante = new Decimal(0);
+          }
+        } else {
+          // Liquidar el 100% de la división
+          await tx.divisionCuenta.update({
+            where: { id: div.id },
+            data: {
+              metodo_pago: metodo_pago,
+              estado_pago: 'PAGADO',
+              pagado_at: new Date(),
+              monto_efectivo: metodo_pago === 'EFECTIVO' ? montoDiv : 0.0,
+              monto_tarjeta: metodo_pago === 'TARJETA' ? montoDiv : 0.0,
+              turno_pago_id: turnoActivoId,
+            },
+          });
+        }
       }
     });
 
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('cuenta:actualizar');
+    }
+
     return res.json({
-      message: 'Cargos liquidados correctamente',
+      message: esAbonoParcial ? 'Abono a deuda registrado correctamente' : 'Cargos liquidados correctamente',
       cargos_actualizados: divisiones.length,
     });
   } catch (error) {
@@ -439,6 +521,11 @@ export async function borrarCargosSocio(req: AuthenticatedRequest, res: Response
         pagado_at: new Date(),
       },
     });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('cuenta:actualizar');
+    }
 
     return res.json({
       message: 'Adeudos borrados correctamente. La compra permanece registrada y el stock no se altera.',
@@ -554,6 +641,39 @@ export async function obtenerCuentaActivaSocio(req: AuthenticatedRequest, res: R
   } catch (error) {
     console.error('Error al obtener cuenta activa de socio:', error);
     return res.status(500).json({ error: 'Error al consultar cuenta activa' });
+  }
+}
+
+// 13. Obtener el siguiente código secuencial para Socio o Empleado
+export async function obtenerSiguienteCodigoSocio(req: AuthenticatedRequest, res: Response) {
+  const tipo = (req.query.tipo as string || 'SOCIO').toUpperCase();
+  const prefijo = tipo === 'EMPLEADO' ? 'EMPLEADO-' : 'SOCIO-';
+  try {
+    const clientes = await prisma.cliente.findMany({
+      where: {
+        codigo_socio: {
+          startsWith: prefijo,
+        },
+      },
+      select: {
+        codigo_socio: true,
+      },
+    });
+
+    let maxNum = 0;
+    for (const c of clientes) {
+      const code = c.codigo_socio || '';
+      const numPart = code.substring(prefijo.length);
+      const num = parseInt(numPart, 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+
+    return res.json({ siguiente_codigo: `${prefijo}${maxNum + 1}` });
+  } catch (error) {
+    console.error('Error al calcular siguiente código:', error);
+    return res.status(500).json({ error: 'Error al calcular siguiente código' });
   }
 }
 
