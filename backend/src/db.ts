@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 
-// Limpieza automática de la URL de conexión de Supabase (usar puerto 5432 directo)
+// Limpieza automática de la URL de conexión de Supabase (usar puerto 5432 + sslmode=require obligatorio para Netlify/AWS)
 let rawDbUrl = process.env.DATABASE_URL || '';
 if (rawDbUrl.includes('[') && rawDbUrl.includes(']')) {
   rawDbUrl = rawDbUrl.replace(/\[|\]/g, '');
@@ -9,15 +9,18 @@ if (rawDbUrl.includes('supabase.co')) {
   if (rawDbUrl.includes(':6543/')) {
     rawDbUrl = rawDbUrl.replace(':6543/', ':5432/');
   }
+  if (!rawDbUrl.includes('sslmode=')) {
+    rawDbUrl += (rawDbUrl.includes('?') ? '&' : '?') + 'sslmode=require&connect_timeout=30';
+  }
 }
 
 // Fallback por omisión si la variable en Netlify no se asignó o es inválida
-if ((!rawDbUrl || rawDbUrl.includes(':6543')) && process.env.NETLIFY) {
-  rawDbUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:5432/postgres';
+if (!rawDbUrl || process.env.NETLIFY) {
+  rawDbUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:5432/postgres?sslmode=require&connect_timeout=30';
 }
 
 const prisma = new PrismaClient({
-  datasources: rawDbUrl ? { db: { url: rawDbUrl } } : undefined,
+  datasources: { db: { url: rawDbUrl } },
 });
 
 // Solución global para serialización de BigInt en Express / JSON.stringify
