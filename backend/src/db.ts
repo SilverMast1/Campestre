@@ -1,19 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 
 function getDatabaseUrl(): string {
-  let url = process.env.DATABASE_URL || '';
+  const fallbackUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:5432/postgres?sslmode=require&connect_timeout=30';
+  let url = process.env.DATABASE_URL || fallbackUrl;
   
-  // Si no hay URL o estamos en Netlify sin variable de entorno configurada
-  if (!url || (process.env.NETLIFY && !url.includes('supabase.co'))) {
-    url = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:5432/postgres?sslmode=require&connect_timeout=30';
-  }
-
-  // Limpiar corchetes accidentales
+  // Limpiar corchetes accidentales si se pegaron en la variable de entorno
   if (url.includes('[') && url.includes(']')) {
     url = url.replace(/\[|\]/g, '');
   }
 
-  // Si es Supabase, asegurar puerto 5432 directo y parámetros SSL
+  // Si es URL de Supabase, asegurar puerto 5432 y sslmode=require
   if (url.includes('supabase.co')) {
     if (url.includes(':6543/')) {
       url = url.replace(':6543/', ':5432/');
@@ -21,6 +17,8 @@ function getDatabaseUrl(): string {
     if (!url.includes('sslmode=')) {
       url += (url.includes('?') ? '&' : '?') + 'sslmode=require&connect_timeout=30';
     }
+  } else if (!url.startsWith('file:')) {
+    url = fallbackUrl;
   }
 
   return url;

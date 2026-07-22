@@ -1,6 +1,6 @@
 const serverless = require('serverless-http');
 
-// Configurar variables de entorno globales ANTES de cargar el backend Express
+// Configurar variables de entorno explícitas para Netlify con SSL obligatorio
 process.env.NETLIFY = 'true';
 process.env.DATABASE_URL = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:5432/postgres?sslmode=require&connect_timeout=30';
 
