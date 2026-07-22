@@ -61,13 +61,7 @@ const isOriginAllowed = (origin: string): boolean => {
 
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (!origin || isOriginAllowed(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`CORS socket.io: origen no permitido: ${origin}`));
-      }
-    },
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true,
   },
@@ -77,14 +71,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middlewares globales
 app.use(cors({
-  origin: (origin, callback) => {
-    // Permitir peticiones sin origin (Postman, mobile) o desde orígenes permitidos
-    if (!origin || isOriginAllowed(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS: origen no permitido: ${origin}`));
-    }
-  },
+  origin: true,
   credentials: true,
 }));
 app.use(express.json());
