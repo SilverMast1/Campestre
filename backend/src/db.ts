@@ -1,17 +1,19 @@
 import { PrismaClient } from '@prisma/client';
 
-// Limpieza automática de la URL de conexión de Supabase en caso de corchetes o puerto 5432
+// Limpieza automática de la URL de conexión de Supabase (usar puerto 5432 directo)
 let rawDbUrl = process.env.DATABASE_URL || '';
 if (rawDbUrl.includes('[') && rawDbUrl.includes(']')) {
   rawDbUrl = rawDbUrl.replace(/\[|\]/g, '');
 }
-if (rawDbUrl.includes(':5432/') && rawDbUrl.includes('supabase.co')) {
-  rawDbUrl = rawDbUrl.replace(':5432/', ':6543/');
+if (rawDbUrl.includes('supabase.co')) {
+  if (rawDbUrl.includes(':6543/')) {
+    rawDbUrl = rawDbUrl.replace(':6543/', ':5432/');
+  }
 }
 
-// Fallback por omisión si la variable en Netlify no se asignó correctamente
-if (!rawDbUrl && process.env.NETLIFY) {
-  rawDbUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:6543/postgres';
+// Fallback por omisión si la variable en Netlify no se asignó o es inválida
+if ((!rawDbUrl || rawDbUrl.includes(':6543')) && process.env.NETLIFY) {
+  rawDbUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:5432/postgres';
 }
 
 const prisma = new PrismaClient({
