@@ -1,10 +1,14 @@
 [build]
-  command = "npm run install:all && cd backend && npx prisma generate && npx tsc && cd .. && npm run build --prefix frontend"
+  command = "npm run install:all && npx prisma generate --schema=backend/prisma/schema.prisma && cd backend && npx prisma generate && npx tsc && cd .. && npm run build --prefix frontend"
   publish = "frontend/dist"
   functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "18"
+
+[functions]
+  external_node_modules = ["@prisma/client", ".prisma", "bcrypt", "better-sqlite3"]
+  included_files = ["node_modules/.prisma/**", "node_modules/@prisma/**", "backend/node_modules/.prisma/**"]
 
 [[redirects]]
   from = "/api/*"
