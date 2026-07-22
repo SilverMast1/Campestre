@@ -66,7 +66,6 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
       const items = c.detalleCuentas.map(det => `${Number(det.cantidad)}x ${det.producto.nombre}`);
       const pagos: any[] = [];
       const totalCuenta = new Decimal(c.total);
-      totalVentas = totalVentas.plus(totalCuenta);
       totalDescuentos = totalDescuentos.plus(new Decimal(c.descuento || 0));
 
       if (c.divisionesCuentas.length > 0) {
@@ -143,6 +142,7 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
       };
     });
 
+    // Divisiones de socios liquidadas en este periodo (pagos de cargos anteriores)
     const divisionesPagadasHoy = await prisma.divisionCuenta.findMany({
       where: {
         estado_pago: 'PAGADO',
@@ -154,17 +154,37 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
       },
       include: {
         cliente: true,
+        cuenta: { select: { id: true, closed_at: true } },
       }
     });
+
+    // Acumular liquidaciones por separado para no inflar los métodos de pago de ventas
+    let liquidadoEfectivo = new Decimal(0);
+    let liquidadoTarjeta = new Decimal(0);
+    let liquidadoTransferencia = new Decimal(0);
+    let totalLiquidado = new Decimal(0);
 
     divisionesPagadasHoy.forEach(div => {
       const montoDec = new Decimal(div.monto_proporcional);
       const metodo = div.metodo_pago;
+      totalLiquidado = totalLiquidado.plus(montoDec);
 
-      if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
-      else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
-      else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
+      if (metodo === 'EFECTIVO') {
+        efectivo = efectivo.plus(montoDec);
+        liquidadoEfectivo = liquidadoEfectivo.plus(montoDec);
+      }
+      else if (metodo === 'TARJETA') {
+        tarjeta = tarjeta.plus(montoDec);
+        liquidadoTarjeta = liquidadoTarjeta.plus(montoDec);
+      }
+      else if (metodo === 'TRANSFERENCIA') {
+        transferencia = transferencia.plus(montoDec);
+        liquidadoTransferencia = liquidadoTransferencia.plus(montoDec);
+      }
     });
+
+    // Ventas Netas = suma real de todos los métodos de pago (lo que realmente entró/se cargó)
+    totalVentas = efectivo.plus(tarjeta).plus(transferencia).plus(cargos);
 
     return res.json({
       fecha: fechaStr,
@@ -178,6 +198,11 @@ export async function obtenerReporteDiario(req: AuthenticatedRequest, res: Respo
         cargo_socio: cargos.toNumber(),
         total_descuentos: totalDescuentos.toNumber(),
         total_ventas: totalVentas.toNumber(),
+        // Desglose de liquidaciones de socios (pagos de cargos de periodos anteriores)
+        total_liquidado_socios: totalLiquidado.toNumber(),
+        liquidado_efectivo: liquidadoEfectivo.toNumber(),
+        liquidado_tarjeta: liquidadoTarjeta.toNumber(),
+        liquidado_transferencia: liquidadoTransferencia.toNumber(),
       },
       ventas,
       cargos_liquidados: divisionesPagadasHoy.map(div => ({
@@ -201,6 +226,7 @@ export async function obtenerReporteCortes(req: AuthenticatedRequest, res: Respo
     const turnos = await prisma.turno.findMany({
       include: {
         usuario: { select: { nombre: true } },
+        retiros: true,
       },
       orderBy: { abierto_at: 'desc' },
     });
@@ -208,9 +234,15 @@ export async function obtenerReporteCortes(req: AuthenticatedRequest, res: Respo
     const resultado = turnos.map((t) => {
       const fondo = new Decimal(t.fondo_inicial);
       const cajaEfectivoTotal = new Decimal(t.caja_efectivo); // Incluye el fondo
+      
+      const retirosOnly = t.retiros ? t.retiros.filter(r => r.tipo !== 'INGRESO') : [];
+      const ingresosOnly = t.retiros ? t.retiros.filter(r => r.tipo === 'INGRESO') : [];
+      const totalRetiros = retirosOnly.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+      const totalIngresos = ingresosOnly.reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
+
       const efectivoVendido = t.activo 
         ? new Decimal(0) 
-        : Decimal.max(0, cajaEfectivoTotal.minus(fondo));
+        : Decimal.max(0, cajaEfectivoTotal.minus(fondo).minus(totalIngresos).plus(totalRetiros));
 
       const tarjeta = new Decimal(t.caja_tarjeta);
       const cargos = new Decimal(t.caja_cargos);
@@ -226,12 +258,21 @@ export async function obtenerReporteCortes(req: AuthenticatedRequest, res: Respo
         abierto_at: t.abierto_at,
         cerrado_at: t.cerrado_at,
         fondo_inicial: Number(fondo),
-        efectivo_total_caja: Number(cajaEfectivoTotal), // Fondo + Efectivo vendido
+        efectivo_total_caja: Number(cajaEfectivoTotal), // Fondo + Efectivo vendido + ingresos - retiros
         efectivo_ventas: Number(efectivoVendido),
         tarjeta_ventas: Number(tarjeta),
         transferencia_ventas: Number(transferencia),
         cargos_socios: Number(cargos),
         ventas_netas: Number(ventasNetas), // Total vendido en el turno
+        total_retiros: Number(totalRetiros),
+        total_ingresos: Number(totalIngresos),
+        retiros: t.retiros ? t.retiros.map(r => ({
+          id: r.id,
+          monto: Number(r.monto),
+          motivo: r.motivo,
+          tipo: r.tipo || 'RETIRO',
+          fecha: r.created_at,
+        })) : [],
       };
     });
 
@@ -239,5 +280,67 @@ export async function obtenerReporteCortes(req: AuthenticatedRequest, res: Respo
   } catch (error: any) {
     console.error('Error al obtener reporte de cortes:', error);
     return res.status(500).json({ error: error.message || 'Error al obtener reporte de cortes' });
+  }
+}
+
+/**
+ * Obtener ventas por área para los últimos N días (para dashboard)
+ */
+export async function obtenerVentasPorArea(req: AuthenticatedRequest, res: Response) {
+  try {
+    const dias = parseInt(req.query.dias as string) || 7;
+    const hoy = new Date();
+    const inicio = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - (dias - 1), 0, 0, 0, 0);
+
+    const cuentas = await prisma.cuenta.findMany({
+      where: {
+        estado: 'PAGADA',
+        closed_at: { gte: inicio },
+      },
+      include: { area: true },
+      orderBy: { closed_at: 'asc' },
+    });
+
+    const areas = new Map<string, { nombre: string; color: string; porDia: Map<string, number> }>();
+    const coloresArea: Record<string, string> = {
+      'Palapa': '#c5a059',
+      'Bar': '#3b82f6',
+      'Snack': '#10b981',
+    };
+
+    cuentas.forEach(cuenta => {
+      if (!cuenta.closed_at) return;
+      const areaNombre = cuenta.area.nombre;
+      const dia = cuenta.closed_at.toISOString().split('T')[0];
+      const total = parseFloat(cuenta.total.toString());
+      if (!areas.has(areaNombre)) {
+        areas.set(areaNombre, { nombre: areaNombre, color: coloresArea[areaNombre] || '#94a3b8', porDia: new Map() });
+      }
+      const area = areas.get(areaNombre)!;
+      area.porDia.set(dia, (area.porDia.get(dia) || 0) + total);
+    });
+
+    const dias_array: string[] = [];
+    for (let i = dias - 1; i >= 0; i--) {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - i);
+      dias_array.push(d.toISOString().split('T')[0]);
+    }
+
+    const resultado = Array.from(areas.values()).map(area => ({
+      nombre: area.nombre,
+      color: area.color,
+      datos: dias_array.map(dia => ({ fecha: dia, total: area.porDia.get(dia) || 0 })),
+    }));
+
+    const totales = Array.from(areas.values()).map(area => ({
+      nombre: area.nombre,
+      color: area.color,
+      total: Array.from(area.porDia.values()).reduce((a, b) => a + b, 0),
+    }));
+
+    return res.json({ dias: dias_array, series: resultado, totales });
+  } catch (error) {
+    console.error('Error al obtener ventas por área:', error);
+    return res.status(500).json({ error: 'Error al consultar ventas por área' });
   }
 }

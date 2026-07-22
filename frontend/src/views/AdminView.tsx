@@ -1,12 +1,142 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { Package, Users, AlertTriangle, Check, RefreshCw, Trash2, Receipt, RotateCcw, Tag, Plus, Clock, DollarSign, CreditCard, Banknote, X, Briefcase, TrendingUp, Calendar, Search, FileText, Smartphone } from 'lucide-react';
+import { Package, Users, AlertTriangle, Check, RefreshCw, Trash2, Receipt, RotateCcw, Tag, Plus, Clock, DollarSign, CreditCard, Banknote, X, Briefcase, TrendingUp, Calendar, Search, FileText, Smartphone, ShoppingCart } from 'lucide-react';
 
 interface GraficaMetodosPagoProps {
   efectivo: number;
   tarjeta: number;
   transferencia?: number;
   cargoSocio: number;
+}
+
+// =============================================
+// COMPONENTE: DASHBOARD DE VENTAS POR ÁREA
+// =============================================
+interface VentasSerie {
+  nombre: string;
+  color: string;
+  datos: { fecha: string; total: number }[];
+}
+
+function DashboardVentas({ token }: { token: string }) {
+  const [datos, setDatos] = React.useState<{ dias: string[]; series: VentasSerie[]; totales: { nombre: string; color: string; total: number }[] } | null>(null);
+  const [rango, setRango] = React.useState<1 | 7 | 30>(7);
+  const [cargando, setCargando] = React.useState(false);
+
+  React.useEffect(() => { cargarDatos(); }, [rango]);
+
+  const cargarDatos = async () => {
+    setCargando(true);
+    try {
+      const res = await fetch(`/api/admin/reportes/ventas-por-area?dias=${rango}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setDatos(await res.json());
+    } catch (e) { console.error(e); }
+    finally { setCargando(false); }
+  };
+
+  const maxTotal = datos ? Math.max(...datos.series.flatMap(s => s.datos.map(d => d.total)), 1) : 1;
+  const BAR_H = 100;
+  const formatFecha = (f: string) => { const [,m,d] = f.split('-'); return `${d}/${m}`; };
+
+  if (cargando && !datos) return <div className="animate-pulse bg-slate-900 rounded-3xl h-64 border border-slate-800" />;
+
+  return (
+    <div className="bg-slate-900/40 rounded-3xl border border-slate-800 p-5 space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-extrabold text-white Outfit">📊 Ventas por Área</h3>
+          <p className="text-[10px] text-slate-400 mt-0.5">Ingresos comparativos en el período</p>
+        </div>
+        <div className="flex space-x-2">
+          {[
+            { value: 1, label: 'Día' },
+            { value: 7, label: 'Semana' },
+            { value: 30, label: 'Mes' }
+          ].map(r => (
+            <button key={r.value} onClick={() => setRango(r.value as any)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                rango === r.value ? 'bg-campestre-gold text-slate-950 border-campestre-gold' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+              }`}>{r.label}</button>
+          ))}
+          <button onClick={cargarDatos} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all">
+            <RefreshCw size={11} className={cargando ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {datos && datos.totales.length > 0 && (
+        <div className={`grid gap-3 grid-cols-${Math.min(datos.totales.length, 3)}`}>
+          {datos.totales.map(t => (
+            <div key={t.nombre} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-3">
+              <div className="flex items-center space-x-2 mb-1">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.color }} />
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{t.nombre}</span>
+              </div>
+              <span className="text-base font-extrabold text-white Outfit">
+                ${t.total.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {datos && datos.dias.length > 0 ? (
+        <div className="overflow-x-auto">
+          <div className="flex items-end gap-1 pb-2" style={{ minWidth: `${datos.dias.length * 48}px`, minHeight: `${BAR_H + 30}px` }}>
+            {datos.dias.map((dia, dIdx) => (
+              <div key={dia} className="flex flex-col items-center flex-1">
+                <div className="flex items-end gap-0.5 mb-1">
+                  {datos!.series.map(serie => {
+                    const valor = serie.datos[dIdx]?.total || 0;
+                    const altura = Math.max(2, (valor / maxTotal) * BAR_H);
+                    return (
+                      <div key={serie.nombre} className="rounded-t-sm transition-all duration-500"
+                        style={{ width: '10px', height: `${altura}px`, backgroundColor: serie.color, opacity: 0.85 }}
+                        title={`${serie.nombre}: $${valor.toFixed(0)}`} />
+                    );
+                  })}
+                </div>
+                <span className="text-[8px] text-slate-500 font-mono">{formatFecha(dia)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="text-center text-slate-400 text-xs py-6">
+          <TrendingUp size={24} className="mx-auto mb-2 opacity-30" />
+          <span>Sin datos en este período</span>
+        </div>
+      )}
+
+      {datos && datos.dias.length > 0 && (
+        <div className="mt-4 border-t border-slate-800/60 pt-4 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+          {datos.dias.map((dia, dIdx) => {
+            const sumDia = datos.series.reduce((acc, s) => acc + (s.datos[dIdx]?.total || 0), 0);
+            const [,m,d] = dia.split('-');
+            return (
+              <div key={dia} className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-2.5 text-center">
+                <span className="text-[9px] text-slate-500 font-bold block">{d}/{m}</span>
+                <span className="text-xs font-bold text-white block mt-0.5">${sumDia.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {datos && datos.series.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {datos.series.map(s => (
+            <div key={s.nombre} className="flex items-center space-x-1.5">
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: s.color }} />
+              <span className="text-[10px] text-slate-400 font-medium">{s.nombre}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function GraficaMetodosPago({ efectivo, tarjeta, transferencia = 0, cargoSocio }: GraficaMetodosPagoProps) {
@@ -198,6 +328,140 @@ function GraficaVentasArea({ ventas }: GraficaVentasAreaProps) {
   );
 }
 
+interface GraficaTopProductosProps {
+  ventas: any[];
+}
+
+function GraficaTopProductos({ ventas }: GraficaTopProductosProps) {
+  const productCounts: { [name: string]: number } = {};
+
+  ventas.forEach((v: any) => {
+    if (v.items && Array.isArray(v.items)) {
+      v.items.forEach((itemStr: string) => {
+        const match = itemStr.match(/^([\d.]+)\s*x\s*(.+)$/i);
+        if (match) {
+          const qty = parseFloat(match[1]);
+          const name = match[2].trim();
+          productCounts[name] = (productCounts[name] || 0) + qty;
+        } else {
+          productCounts[itemStr] = (productCounts[itemStr] || 0) + 1;
+        }
+      });
+    }
+  });
+
+  const sortedProducts = Object.entries(productCounts)
+    .map(([nombre, cantidad]) => ({ nombre, cantidad }))
+    .sort((a, b) => b.cantidad - a.cantidad)
+    .slice(0, 5);
+
+  if (sortedProducts.length === 0) {
+    return (
+      <div className="bg-slate-900/40 rounded-3xl border border-slate-800 p-5 flex flex-col items-center justify-center h-52 text-slate-500 text-xs">
+        <ShoppingCart className="mb-2 opacity-30" size={24} />
+        <span>Sin productos vendidos para graficar hoy</span>
+      </div>
+    );
+  }
+
+  const maxQty = Math.max(...sortedProducts.map(p => p.cantidad), 1);
+
+  return (
+    <div className="bg-slate-900/40 rounded-3xl border border-slate-800/80 p-5 flex flex-col justify-between space-y-4">
+      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Top 5 Productos Vendidos</h4>
+      <div className="space-y-3.5 pt-2">
+        {sortedProducts.map((p, index) => {
+          const pct = (p.cantidad / maxQty) * 100;
+          return (
+            <div key={p.nombre} className="space-y-1">
+              <div className="flex justify-between text-xs font-bold">
+                <span className="text-slate-300 truncate max-w-[70%]">{index + 1}. {p.nombre}</span>
+                <span className="text-slate-400">{p.cantidad} u.</span>
+              </div>
+              <div className="w-full bg-slate-800/50 rounded-full h-2.5 overflow-hidden">
+                <div
+                  style={{ width: `${pct}%` }}
+                  className="bg-gradient-to-r from-campestre-gold via-yellow-500 to-amber-500 h-full rounded-full transition-all duration-700"
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+interface GraficaDistribucionHorasProps {
+  ventas: any[];
+}
+
+function GraficaDistribucionHoras({ ventas }: GraficaDistribucionHorasProps) {
+  const ranges = [
+    { label: '08-10', start: 8, end: 10, total: 0 },
+    { label: '10-12', start: 10, end: 12, total: 0 },
+    { label: '12-14', start: 12, end: 14, total: 0 },
+    { label: '14-16', start: 14, end: 16, total: 0 },
+    { label: '16-18', start: 16, end: 18, total: 0 },
+    { label: '18-20', start: 18, end: 20, total: 0 },
+    { label: '20-22', start: 20, end: 22, total: 0 },
+    { label: '22-24', start: 22, end: 24, total: 0 },
+  ];
+
+  ventas.forEach((v: any) => {
+    if (v.fecha) {
+      const date = new Date(v.fecha);
+      const hour = date.getHours();
+      const amount = v.total || 0;
+      const range = ranges.find(r => hour >= r.start && hour < r.end);
+      if (range) {
+        range.total += amount;
+      }
+    }
+  });
+
+  const totalSalesAmount = ranges.reduce((acc, r) => acc + r.total, 0);
+  if (totalSalesAmount === 0) {
+    return (
+      <div className="bg-slate-900/40 rounded-3xl border border-slate-800 p-5 flex flex-col items-center justify-center h-52 text-slate-500 text-xs">
+        <Clock className="mb-2 opacity-30" size={24} />
+        <span>Sin transacciones registradas hoy</span>
+      </div>
+    );
+  }
+
+  const maxVal = Math.max(...ranges.map(r => r.total), 1);
+
+  return (
+    <div className="bg-slate-900/40 rounded-3xl border border-slate-800/80 p-5 flex flex-col justify-between space-y-4">
+      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Afluencia Horaria (Ventas)</h4>
+      <div className="flex items-end justify-between h-24 pt-2 border-b border-slate-800/60 pb-2">
+        {ranges.map((r) => {
+          const pct = (r.total / maxVal) * 100;
+          return (
+            <div key={r.label} className="flex flex-col items-center gap-1.5 group w-10 relative">
+              <span className="text-[8px] text-slate-300 font-bold opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950 px-1 py-0.5 rounded border border-slate-800 absolute -translate-y-9 z-10">
+                ${r.total.toFixed(0)}
+              </span>
+              <div className="w-3 bg-slate-800/50 rounded-t-md overflow-hidden h-14 flex items-end">
+                <div
+                  style={{ height: `${pct}%` }}
+                  className="w-full rounded-t-md bg-gradient-to-t from-indigo-600 to-violet-400 transition-all duration-700"
+                />
+              </div>
+              <span className="text-[8px] text-slate-400 font-semibold">{r.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-[8px] text-slate-500 font-bold uppercase tracking-wider">
+        <span>Bloque de Horas</span>
+        <span>Máx: ${maxVal.toFixed(0)}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminView() {
   const { token, user } = useStore();
   const esAdmin = user?.roles?.includes('ADMIN');
@@ -218,6 +482,28 @@ export default function AdminView() {
   const [nombreSocioNuevo, setNombreSocioNuevo] = useState('');
   const [telefonoSocioNuevo, setTelefonoSocioNuevo] = useState('');
   const [emailSocioNuevo, setEmailSocioNuevo] = useState('');
+  const [tipoSocioNuevo, setTipoSocioNuevo] = useState<'SOCIO' | 'EMPLEADO'>('SOCIO');
+
+  const fetchSiguienteCodigo = async (tipo: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/socios/siguiente-codigo?tipo=${tipo}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.siguiente_codigo) {
+        setCodigoSocioNuevo(data.siguiente_codigo);
+      }
+    } catch (err) {
+      console.error('Error al obtener siguiente código:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (token) {
+      fetchSiguienteCodigo(tipoSocioNuevo);
+    }
+  }, [token, tipoSocioNuevo]);
 
   // Asignación Cadi
   const [cadiSeleccionadoRonda, setCadiSeleccionadoRonda] = useState<string>('');
@@ -239,7 +525,7 @@ export default function AdminView() {
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [cargandoCuentas, setCargandoCuentas] = useState(false);
   const [mostrarConfirmReset, setMostrarConfirmReset] = useState(false);
-  const [ocultarPagadas, setOcultarPagadas] = useState(false);
+  const [ocultarPagadas, setOcultarPagadas] = useState(true);
 
   // Turno / Corte de Caja
   const [turnoData, setTurnoData] = useState<any>(null);
@@ -285,7 +571,7 @@ export default function AdminView() {
   const [editSocioTelefono, setEditSocioTelefono] = useState('');
 
   // Reportes
-  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'cortes_finales' | 'usuarios' | 'cclourdes' | 'backups'>('gestion');
+  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'cortes_finales' | 'usuarios' | 'cclourdes' | 'backups' | 'socios'>('gestion');
 
   // Reporte Semanal CCLourdes
   const [fechaSemanalGastos, setFechaSemanalGastos] = useState(() => {
@@ -688,7 +974,7 @@ export default function AdminView() {
 
   const cargarSocios = async () => {
     try {
-      const res = await fetch('/api/socio/buscar?q=SOCIO', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch('/api/socios', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setSocios(data);
     } catch (err) { console.error(err); }
@@ -885,7 +1171,8 @@ export default function AdminView() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al registrar socio');
       setSuccess(`Socio ${nombreSocioNuevo} registrado exitosamente.`);
-      setCodigoSocioNuevo(''); setNombreSocioNuevo(''); setTelefonoSocioNuevo(''); setEmailSocioNuevo('');
+      setNombreSocioNuevo(''); setTelefonoSocioNuevo(''); setEmailSocioNuevo('');
+      fetchSiguienteCodigo(tipoSocioNuevo);
       cargarSocios();
     } catch (err: any) { setError(err.message); }
     finally { setCargando(false); }
@@ -1180,10 +1467,28 @@ export default function AdminView() {
             Copias de Seguridad (Backups)
           </button>
         )}
+        {esAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              setSeccionActiva('socios');
+              cargarSociosLista();
+            }}
+            className={`flex items-center gap-2 px-5 py-2.5 text-xs font-semibold rounded-xl transition-all ${
+              seccionActiva === 'socios'
+                ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/10'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Users size={14} />
+            Gestión de Socios
+          </button>
+        )}
       </div>
 
       {seccionActiva === 'gestion' ? (
         <>
+
           {/* ===== CORTE DE CAJA / TURNO (Visible para Admin y Vendedor) ===== */}
           <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-5">
         <div className="flex flex-wrap justify-between items-center gap-3">
@@ -1255,54 +1560,6 @@ export default function AdminView() {
           </div>
         )}
 
-        {/* --- RESUMEN DE CIERRE PREVIO --- */}
-        {resumenCierre && !turnoActivo && (
-          <div className="bg-slate-900/60 rounded-2xl border border-emerald-500/20 p-6 space-y-4 relative">
-            <button onClick={() => setResumenCierre(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white p-1">
-              <X size={16} />
-            </button>
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-              <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/20">
-                <Check className="text-emerald-400" size={24} />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">Resumen del Corte de Caja</h4>
-                <p className="text-[10px] text-slate-400">
-                  Turno #{resumenCierre.id} • Cerrado: {new Date(resumenCierre.cerrado_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="bg-slate-950 rounded-xl p-3 border border-slate-800">
-                <span className="text-[9px] text-slate-500 uppercase tracking-wider block font-bold">Fondo Inicial</span>
-                <span className="text-lg font-extrabold text-slate-300">${resumenCierre.fondo_inicial.toFixed(2)}</span>
-              </div>
-              <div className="bg-slate-950 rounded-xl p-3 border border-emerald-500/15">
-                <span className="text-[9px] text-emerald-400 uppercase tracking-wider block font-bold">💵 Efectivo Ventas</span>
-                <span className="text-lg font-extrabold text-emerald-400">${resumenCierre.efectivo_ventas.toFixed(2)}</span>
-              </div>
-              <div className="bg-slate-950 rounded-xl p-3 border border-blue-500/15">
-                <span className="text-[9px] text-blue-400 uppercase tracking-wider block font-bold">💳 Tarjeta Ventas</span>
-                <span className="text-lg font-extrabold text-blue-400">${resumenCierre.tarjeta_ventas.toFixed(2)}</span>
-              </div>
-              <div className="bg-slate-950 rounded-xl p-3 border border-cyan-500/15">
-                <span className="text-[9px] text-cyan-400 uppercase tracking-wider block font-bold">📲 Transferencias</span>
-                <span className="text-lg font-extrabold text-cyan-400">${(resumenCierre.transferencia_ventas || 0).toFixed(2)}</span>
-              </div>
-              <div className="bg-slate-950 rounded-xl p-3 border border-yellow-500/15">
-                <span className="text-[9px] text-yellow-400 uppercase tracking-wider block font-bold">⛳ Cargos Socios</span>
-                <span className="text-lg font-extrabold text-yellow-400">${resumenCierre.cargos_socios_adeudos.toFixed(2)}</span>
-              </div>
-            </div>
-            <div className="bg-campestre-gold/5 border border-campestre-gold/20 rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-campestre-gold uppercase tracking-wider block font-bold">💰 Total Efectivo a Entregar</span>
-                <span className="text-[9px] text-slate-400 block">Fondo inicial + ventas en efectivo</span>
-              </div>
-              <span className="text-2xl font-extrabold text-campestre-gold">${resumenCierre.efectivo_total_entregar.toFixed(2)} MXN</span>
-            </div>
-          </div>
-        )}
 
         {/* --- SI HAY TURNO ACTIVO: DASHBOARD FINANCIERO --- */}
         {turnoActivo && turnoData && (
@@ -1376,6 +1633,40 @@ export default function AdminView() {
                       <div className="text-right">
                         <span className="text-sm font-extrabold text-white block">${v.total.toFixed(2)}</span>
                         <span className="text-[9px] text-slate-500 block">{v.fecha ? new Date(v.fecha).toLocaleString('es-MX', { timeStyle: 'short' }) : ''}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Historial de adeudos cobrados en el turno */}
+            {turnoData.cargos_liquidados && turnoData.cargos_liquidados.length > 0 && (
+              <div className="space-y-2 mt-4">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Check size={13} className="text-emerald-400" /> Cobro de Adeudos (Socios)
+                </span>
+                <div className="max-h-32 overflow-y-auto space-y-2 pr-1">
+                  {turnoData.cargos_liquidados.map((c: any) => (
+                    <div key={c.id} className="bg-slate-900/40 border border-emerald-500/10 rounded-xl px-4 py-3 flex justify-between items-center">
+                      <div className="space-y-0.5">
+                        <span className="text-xs text-white font-bold block">Socio: {c.socio}</span>
+                        <span className="text-[10px] text-slate-400 block">Liquidación de Cargo en Cuenta #{c.cuenta_id}</span>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
+                            c.metodo_pago === 'EFECTIVO' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : c.metodo_pago === 'TARJETA' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                            : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                          }`}>
+                            {c.metodo_pago === 'EFECTIVO' ? '💵' : c.metodo_pago === 'TARJETA' ? '💳' : '📲'} {c.metodo_pago}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-extrabold text-emerald-400 block">+${c.monto.toFixed(2)}</span>
+                        <span className="text-[9px] text-slate-500 block">
+                          {c.fecha ? new Date(c.fecha).toLocaleTimeString('es-MX', { timeStyle: 'short' }) : ''}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -1475,43 +1766,10 @@ export default function AdminView() {
         )}
       </div>
 
-          {esAdmin && (
-            <>
-      {/* ===== PANEL FINANCIERO DE ÁREA ===== */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">💵 Caja de Efectivo ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
-            <h4 className="text-2xl font-extrabold text-emerald-400">${balances.efectivo.toFixed(2)} MXN</h4>
-            <span className="text-[9px] text-slate-500 block">Acumulado total en efectivo</span>
-          </div>
-          <span className="text-3xl opacity-30">💵</span>
-        </div>
-        <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">💳 Terminal de Tarjetas ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
-            <h4 className="text-2xl font-extrabold text-blue-400">${balances.tarjeta.toFixed(2)} MXN</h4>
-            <span className="text-[9px] text-slate-500 block">Acumulado total con tarjeta</span>
-          </div>
-          <span className="text-3xl opacity-30">💳</span>
-        </div>
-        <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">📲 Transferencias ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
-            <h4 className="text-2xl font-extrabold text-cyan-400">${(balances.transferencia || 0).toFixed(2)} MXN</h4>
-            <span className="text-[9px] text-slate-500 block">Acumulado total transferido</span>
-          </div>
-          <span className="text-3xl opacity-30">📲</span>
-        </div>
-        <div className="glass-card rounded-2xl border border-slate-800 p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">⛳ Cargos a Socios ({areaTurnoAdmin === 1 ? 'Bar' : areaTurnoAdmin === 2 ? 'Snack' : 'Palapa'})</span>
-            <h4 className="text-2xl font-extrabold text-yellow-400">${balances.cargo_socio.toFixed(2)} MXN</h4>
-            <span className="text-[9px] text-slate-500 block">Cuentas por cobrar de miembros</span>
-          </div>
-          <span className="text-3xl opacity-30">⛳</span>
-        </div>
-      </div>
+      {esAdmin && (
+        <>
+          {/* ===== DASHBOARD DE VENTAS POR ÁREA ===== */}
+          <DashboardVentas token={token || ''} />
 
       {/* ===== AGREGAR NUEVO PRODUCTO ===== */}
       <div className="glass-card rounded-3xl border border-slate-800 p-6">
@@ -1734,120 +1992,135 @@ export default function AdminView() {
             </>
           )}
 
-      {/* ===== REGISTRAR NUEVO SOCIO ===== */}
-      <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-          <span>👤</span><span>Registrar Nuevo Socio</span>
-        </h3>
-        <form onSubmit={handleCrearSocio} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-medium text-slate-400 mb-1">Código de Socio *</label>
-            <input type="text" required placeholder="E.g. SOCIO-105"
-              value={codigoSocioNuevo} onChange={e => setCodigoSocioNuevo(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
-            />
+      </>
+      ) : seccionActiva === 'socios' ? (
+        <>
+          <div className="space-y-6">
+          {/* ===== REGISTRAR NUEVO SOCIO ===== */}
+          <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <span>👤</span><span>Registrar Nuevo Socio</span>
+            </h3>
+            <form onSubmit={handleCrearSocio} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2 flex gap-4">
+                <label className="flex items-center gap-1.5 text-xs text-white font-medium cursor-pointer">
+                  <input type="radio" name="tipo_socio" value="SOCIO" checked={tipoSocioNuevo === 'SOCIO'} onChange={() => setTipoSocioNuevo('SOCIO')} className="text-yellow-400 focus:ring-0" />
+                  Socio
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-white font-medium cursor-pointer">
+                  <input type="radio" name="tipo_socio" value="EMPLEADO" checked={tipoSocioNuevo === 'EMPLEADO'} onChange={() => setTipoSocioNuevo('EMPLEADO')} className="text-yellow-400 focus:ring-0" />
+                  Empleado
+                </label>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Código de Socio *</label>
+                <input type="text" required placeholder="E.g. SOCIO-105"
+                  value={codigoSocioNuevo} onChange={e => setCodigoSocioNuevo(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Nombre Completo *</label>
+                <input type="text" required placeholder="María Elena Ruíz García"
+                  value={nombreSocioNuevo} onChange={e => setNombreSocioNuevo(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Correo Electrónico</label>
+                <input type="email" placeholder="correo@socio.com"
+                  value={emailSocioNuevo} onChange={e => setEmailSocioNuevo(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Teléfono</label>
+                <input type="text" placeholder="555-200-1005"
+                  value={telefonoSocioNuevo} onChange={e => setTelefonoSocioNuevo(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <button type="submit"
+                  className="w-full py-2.5 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-bold rounded-xl text-xs transition-colors"
+                >
+                  Dar de Alta Socio
+                </button>
+              </div>
+            </form>
           </div>
-          <div>
-            <label className="block text-[10px] font-medium text-slate-400 mb-1">Nombre Completo *</label>
-            <input type="text" required placeholder="María Elena Ruíz García"
-              value={nombreSocioNuevo} onChange={e => setNombreSocioNuevo(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-medium text-slate-400 mb-1">Correo Electrónico</label>
-            <input type="email" placeholder="correo@socio.com"
-              value={emailSocioNuevo} onChange={e => setEmailSocioNuevo(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-medium text-slate-400 mb-1">Teléfono</label>
-            <input type="text" placeholder="555-200-1005"
-              value={telefonoSocioNuevo} onChange={e => setTelefonoSocioNuevo(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-yellow-400"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <button type="submit"
-              className="w-full py-2.5 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-bold rounded-xl text-xs transition-colors"
-            >
-              Dar de Alta Socio
-            </button>
-          </div>
-        </form>
-      </div>
 
-      {/* ===== LISTA DE SOCIOS ===== */}
-      <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-bold flex items-center gap-2">
-            <Users className="text-yellow-400" size={18} />
-            <span>Socios Registrados</span>
-          </h3>
-          <button onClick={cargarSociosLista} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors">
-            <RefreshCw size={14} />
-          </button>
+          {/* ===== LISTA DE SOCIOS ===== */}
+          <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Users className="text-yellow-400" size={18} />
+                <span>Socios Registrados</span>
+              </h3>
+              <button onClick={cargarSociosLista} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors">
+                <RefreshCw size={14} />
+              </button>
+            </div>
+
+            {/* Buscador de Socios por nombre/código */}
+            {sociosLista.length > 0 && (
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-450 pointer-events-none">
+                  <Search size={14} />
+                </span>
+                <input
+                  type="text"
+                  placeholder="Buscar socio por nombre, código, email o teléfono..."
+                  value={busquedaSocio}
+                  onChange={(e) => setBusquedaSocio(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-campestre-gold/50 transition-all font-medium"
+                />
+              </div>
+            )}
+
+            {sociosListaFiltrada.length === 0 ? (
+              <p className="text-slate-500 text-sm text-center py-6">
+                {busquedaSocio.trim() !== '' ? 'No se encontraron socios que coincidan con la búsqueda.' : 'No hay socios registrados.'}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-300">
+                  <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="px-4 py-3">Código</th>
+                      <th className="px-4 py-3">Nombre</th>
+                      <th className="px-4 py-3">Email</th>
+                      <th className="px-4 py-3">Teléfono</th>
+                      <th className="px-4 py-3 text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {sociosListaFiltrada.map((s) => (
+                      <tr key={s.id} className="hover:bg-slate-800/30">
+                        <td className="px-4 py-3 font-mono text-yellow-400 font-bold">{s.codigo_socio}</td>
+                        <td className="px-4 py-3 text-white font-medium">{s.nombre}</td>
+                        <td className="px-4 py-3 text-slate-400">{s.email || '—'}</td>
+                        <td className="px-4 py-3 text-slate-400">{s.telefono || '—'}</td>
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex justify-center gap-2">
+                            <button type="button" onClick={() => startEditSocio(s)}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/25 text-blue-400 rounded-lg text-[10px] font-bold border border-blue-500/20 transition-colors">
+                              Editar
+                            </button>
+                            <button type="button" onClick={() => handleEliminarSocio(s.id)}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/25 text-red-400 rounded-lg text-[10px] font-bold border border-red-500/20 transition-colors">
+                              <Trash2 size={11} /> Eliminar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* Buscador de Socios por nombre/código */}
-        {sociosLista.length > 0 && (
-          <div className="relative">
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-450 pointer-events-none">
-              <Search size={14} />
-            </span>
-            <input
-              type="text"
-              placeholder="Buscar socio por nombre, código, email o teléfono..."
-              value={busquedaSocio}
-              onChange={(e) => setBusquedaSocio(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-campestre-gold/50 transition-all font-medium"
-            />
-          </div>
-        )}
-
-        {sociosListaFiltrada.length === 0 ? (
-          <p className="text-slate-500 text-sm text-center py-6">
-            {busquedaSocio.trim() !== '' ? 'No se encontraron socios que coincidan con la búsqueda.' : 'No hay socios registrados.'}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="px-4 py-3">Código</th>
-                  <th className="px-4 py-3">Nombre</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Teléfono</th>
-                  <th className="px-4 py-3 text-center">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {sociosListaFiltrada.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-800/30">
-                    <td className="px-4 py-3 font-mono text-yellow-400 font-bold">{s.codigo_socio}</td>
-                    <td className="px-4 py-3 text-white font-medium">{s.nombre}</td>
-                    <td className="px-4 py-3 text-slate-400">{s.email || '—'}</td>
-                    <td className="px-4 py-3 text-slate-400">{s.telefono || '—'}</td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex justify-center gap-2">
-                        <button type="button" onClick={() => startEditSocio(s)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/25 text-blue-400 rounded-lg text-[10px] font-bold border border-blue-500/20 transition-colors">
-                          Editar
-                        </button>
-                        <button type="button" onClick={() => handleEliminarSocio(s.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/25 text-red-400 rounded-lg text-[10px] font-bold border border-red-500/20 transition-colors">
-                          <Trash2 size={11} /> Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
       </>
       ) : seccionActiva === 'reportes' ? (
         <div className="space-y-6">
@@ -1907,36 +2180,59 @@ export default function AdminView() {
 
             {/* Tarjetas de Resumen del Día */}
             {reporteDiario && (
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-4">
-                  <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">💵 Efectivo Ventas</span>
-                  <span className="text-xl font-extrabold text-emerald-400 mt-1 block">
-                    ${reporteDiario.resumen.efectivo.toFixed(2)}
-                  </span>
+              <div className="space-y-3">
+                {/* Fila principal de métodos de pago */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-4">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">💵 Efectivo Ventas</span>
+                    <span className="text-xl font-extrabold text-emerald-400 mt-1 block">
+                      ${reporteDiario.resumen.efectivo.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-4">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">💳 Tarjeta Ventas</span>
+                    <span className="text-xl font-extrabold text-blue-400 mt-1 block">
+                      ${reporteDiario.resumen.tarjeta.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-4">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">📲 Transferencias</span>
+                    <span className="text-xl font-extrabold text-cyan-400 mt-1 block">
+                      ${(reporteDiario.resumen.transferencia || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-4">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">⛳ Cargos a Socios</span>
+                    <span className="text-xl font-extrabold text-yellow-400 mt-1 block">
+                      ${reporteDiario.resumen.cargo_socio.toFixed(2)}
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-4">
-                  <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">💳 Tarjeta Ventas</span>
-                  <span className="text-xl font-extrabold text-blue-400 mt-1 block">
-                    ${reporteDiario.resumen.tarjeta.toFixed(2)}
-                  </span>
-                </div>
-                <div className="bg-slate-900/60 rounded-2xl border border-slate-800 p-4">
-                  <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">⛳ Cargos a Socios</span>
-                  <span className="text-xl font-extrabold text-yellow-400 mt-1 block">
-                    ${reporteDiario.resumen.cargo_socio.toFixed(2)}
-                  </span>
-                </div>
-                <div className="bg-slate-900/60 rounded-2xl border border-red-500/20 p-4 bg-red-500/5">
-                  <span className="text-[9px] text-red-400 uppercase tracking-wider font-bold block">🏷️ Descuentos Otorgados</span>
-                  <span className="text-xl font-extrabold text-red-400 mt-1 block">
-                    ${(reporteDiario.resumen.total_descuentos || 0).toFixed(2)}
-                  </span>
-                </div>
-                <div className="bg-slate-900/60 rounded-2xl border border-campestre-gold/20 p-4 bg-campestre-gold/5">
-                  <span className="text-[9px] text-campestre-gold uppercase tracking-wider font-bold block">📈 Ventas Netas Totales</span>
-                  <span className="text-xl font-extrabold text-campestre-gold mt-1 block">
-                    ${reporteDiario.resumen.total_ventas.toFixed(2)}
-                  </span>
+
+                {/* Fila de totales */}
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="bg-slate-900/60 rounded-2xl border border-red-500/20 p-4 bg-red-500/5">
+                    <span className="text-[9px] text-red-400 uppercase tracking-wider font-bold block">🏷️ Descuentos Otorgados</span>
+                    <span className="text-xl font-extrabold text-red-400 mt-1 block">
+                      ${(reporteDiario.resumen.total_descuentos || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  {(reporteDiario.resumen.total_liquidado_socios || 0) > 0 && (
+                    <div className="bg-slate-900/60 rounded-2xl border border-purple-500/20 p-4 bg-purple-500/5">
+                      <span className="text-[9px] text-purple-400 uppercase tracking-wider font-bold block">🔄 Liquidaciones de Socios</span>
+                      <span className="text-xl font-extrabold text-purple-400 mt-1 block">
+                        ${(reporteDiario.resumen.total_liquidado_socios || 0).toFixed(2)}
+                      </span>
+                      <span className="text-[8px] text-purple-400/60 block mt-0.5">Cobros de cargos anteriores</span>
+                    </div>
+                  )}
+                  <div className="bg-slate-900/60 rounded-2xl border border-campestre-gold/20 p-4 bg-campestre-gold/5">
+                    <span className="text-[9px] text-campestre-gold uppercase tracking-wider font-bold block">📈 Ventas Netas Totales</span>
+                    <span className="text-xl font-extrabold text-campestre-gold mt-1 block">
+                      ${reporteDiario.resumen.total_ventas.toFixed(2)}
+                    </span>
+                    <span className="text-[8px] text-campestre-gold/60 block mt-0.5">Efectivo + Tarjeta + Transf. + Cargos</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -1951,6 +2247,60 @@ export default function AdminView() {
                   cargoSocio={reporteDiario.resumen.cargo_socio}
                 />
                 <GraficaVentasArea ventas={reporteDiario.ventas} />
+                <GraficaTopProductos ventas={reporteDiario.ventas} />
+                <GraficaDistribucionHoras ventas={reporteDiario.ventas} />
+              </div>
+            )}
+
+            {/* Tabla de Liquidaciones de Socios */}
+            {reporteDiario && reporteDiario.cargos_liquidados && reporteDiario.cargos_liquidados.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-2">
+                  🔄 Liquidaciones de Socios en el Periodo
+                  <span className="text-[9px] text-slate-500 font-normal normal-case">(Pagos de cargos de periodos anteriores cobrados en este rango)</span>
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left text-slate-300">
+                    <thead className="bg-purple-900/20 text-purple-300 uppercase text-[9px] tracking-wider border-b border-purple-500/20">
+                      <tr>
+                        <th className="px-4 py-3">Socio</th>
+                        <th className="px-4 py-3">Cuenta Original</th>
+                        <th className="px-4 py-3">Método de Pago</th>
+                        <th className="px-4 py-3">Fecha de Pago</th>
+                        <th className="px-4 py-3 text-right">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {reporteDiario.cargos_liquidados.map((cl: any) => (
+                        <tr key={cl.id} className="hover:bg-purple-500/5 transition-colors">
+                          <td className="px-4 py-3 font-semibold text-white">{cl.socio}</td>
+                          <td className="px-4 py-3 font-mono text-slate-400">#{String(cl.cuenta_id).slice(-6)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${
+                              cl.metodo_pago === 'EFECTIVO' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : cl.metodo_pago === 'TARJETA' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                              : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                            }`}>
+                              {cl.metodo_pago === 'EFECTIVO' ? '💵' : cl.metodo_pago === 'TARJETA' ? '💳' : '📲'} {cl.metodo_pago}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-400">
+                            {cl.fecha ? new Date(cl.fecha).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right font-extrabold text-purple-400">${cl.monto.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-purple-900/10 border-t border-purple-500/20">
+                      <tr>
+                        <td colSpan={4} className="px-4 py-3 text-right font-bold text-purple-300 uppercase text-[9px] tracking-wider">Total Liquidado</td>
+                        <td className="px-4 py-3 text-right font-extrabold text-purple-400 text-sm">
+                          ${(reporteDiario.resumen.total_liquidado_socios || 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -2120,7 +2470,9 @@ export default function AdminView() {
                       <th className="px-3 py-3">Apertura</th>
                       <th className="px-3 py-3">Cierre</th>
                       <th className="px-3 py-3 text-right">Fondo Inicial</th>
-                      <th className="px-3 py-3 text-right">Caja Efectivo</th>
+                      <th className="px-3 py-3 text-right text-emerald-400/90">Ingresos</th>
+                      <th className="px-3 py-3 text-right text-rose-400/90">Retiros</th>
+                      <th className="px-3 py-3 text-right text-emerald-300 font-bold">Caja Efectivo</th>
                       <th className="px-3 py-3 text-right">Ventas Efectivo</th>
                       <th className="px-3 py-3 text-right">Ventas Tarjeta</th>
                       <th className="px-3 py-3 text-right">Transferencias</th>
@@ -2130,7 +2482,11 @@ export default function AdminView() {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {cortesDelDia.map((t) => (
-                      <tr key={t.id} className="hover:bg-slate-800/20 transition-colors">
+                      <tr 
+                        key={t.id} 
+                        onClick={() => setResumenCierre({ ...t, cargos_socios_adeudos: t.cargos_socios, efectivo_total_entregar: t.efectivo_total_caja, caja_efectivo_final: t.efectivo_total_caja })}
+                        className="hover:bg-slate-800/20 transition-colors cursor-pointer"
+                      >
                         <td className="px-3 py-3 font-mono font-bold text-slate-400">#{t.id}</td>
                         <td className="px-3 py-3">
                           {t.activo ? (
@@ -2154,7 +2510,9 @@ export default function AdminView() {
                           }
                         </td>
                         <td className="px-3 py-3 text-right font-semibold text-slate-400">${t.fondo_inicial.toFixed(2)}</td>
-                        <td className="px-3 py-3 text-right font-bold text-slate-300">
+                        <td className="px-3 py-3 text-right font-semibold text-emerald-400/90">${(t.total_ingresos || 0).toFixed(2)}</td>
+                        <td className="px-3 py-3 text-right font-semibold text-rose-400/95">${(t.total_retiros || 0).toFixed(2)}</td>
+                        <td className="px-3 py-3 text-right font-bold text-emerald-300">
                           ${t.efectivo_total_caja.toFixed(2)}
                         </td>
                         <td className="px-3 py-3 text-right font-bold text-emerald-400">
@@ -3065,6 +3423,226 @@ export default function AdminView() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Resumen de Corte de Caja */}
+      {resumenCierre && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 w-full max-w-4xl shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-4">
+            <button onClick={() => setResumenCierre(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white p-1">
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/20">
+                <Check className="text-emerald-400" size={24} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">Resumen del Corte de Caja</h4>
+                <p className="text-[10px] text-slate-400">
+                  Turno #{resumenCierre.id} • Cerrado: {new Date(resumenCierre.cerrado_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+              <div className="bg-slate-950 rounded-xl p-3 border border-slate-800">
+                <span className="text-[9px] text-slate-500 uppercase tracking-wider block font-bold">Fondo Inicial</span>
+                <span className="text-sm font-extrabold text-slate-350">${resumenCierre.fondo_inicial.toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 border border-emerald-500/15">
+                <span className="text-[9px] text-emerald-400 uppercase tracking-wider block font-bold">💵 Ventas Efectivo</span>
+                <span className="text-sm font-extrabold text-emerald-400">${resumenCierre.efectivo_ventas.toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 border border-emerald-600/15">
+                <span className="text-[9px] text-emerald-300 uppercase tracking-wider block font-bold">📥 Ingresos</span>
+                <span className="text-sm font-extrabold text-emerald-300">${(resumenCierre.total_ingresos || 0).toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 border border-rose-500/15">
+                <span className="text-[9px] text-rose-400 uppercase tracking-wider block font-bold">📤 Retiros</span>
+                <span className="text-sm font-extrabold text-rose-400">${(resumenCierre.total_retiros || 0).toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 border border-blue-500/15">
+                <span className="text-[9px] text-blue-400 uppercase tracking-wider block font-bold">💳 Tarjeta Ventas</span>
+                <span className="text-sm font-extrabold text-blue-400">${resumenCierre.tarjeta_ventas.toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 border border-cyan-500/15">
+                <span className="text-[9px] text-cyan-400 uppercase tracking-wider block font-bold">📲 Transferencias</span>
+                <span className="text-sm font-extrabold text-cyan-400">${(resumenCierre.transferencia_ventas || 0).toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 border border-yellow-500/15">
+                <span className="text-[9px] text-yellow-400 uppercase tracking-wider block font-bold">⛳ Cargos Socios</span>
+                <span className="text-sm font-extrabold text-yellow-400">${resumenCierre.cargos_socios_adeudos.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="bg-campestre-gold/5 border border-campestre-gold/20 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-campestre-gold uppercase tracking-wider block font-bold">💰 Total Efectivo Real en Caja</span>
+                <span className="text-[9px] text-slate-400 block">Fondo inicial + ventas efectivo + ingresos - retiros</span>
+              </div>
+              <span className="text-2xl font-extrabold text-campestre-gold">
+                ${(resumenCierre.caja_efectivo_final !== undefined ? resumenCierre.caja_efectivo_final : (resumenCierre.fondo_inicial + resumenCierre.efectivo_ventas + (resumenCierre.total_ingresos || 0) - (resumenCierre.total_retiros || 0))).toFixed(2)} MXN
+              </span>
+            </div>
+
+            {resumenCierre.retiros && resumenCierre.retiros.length > 0 && (
+              <div className="space-y-2 border-t border-slate-800 pt-4">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Movimientos de Caja (Ingresos / Retiros):</span>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {resumenCierre.retiros.map((r: any) => (
+                    <div key={r.id} className="flex justify-between items-center bg-slate-950/40 rounded-lg p-2 border border-slate-800 text-[10px]">
+                      <div>
+                        <span className={`font-bold uppercase mr-1.5 ${r.tipo === 'INGRESO' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {r.tipo === 'INGRESO' ? '📥 INGRESO' : '📤 RETIRO'}
+                        </span>
+                        <span className="text-slate-350">{r.motivo}</span>
+                      </div>
+                      <span className={`font-bold ${r.tipo === 'INGRESO' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {r.tipo === 'INGRESO' ? '+' : '-'}${r.monto.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Botones de Acción del Modal */}
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="py-2.5 px-4 bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2"
+              >
+                🖨️ Imprimir Corte (80mm)
+              </button>
+              <button
+                type="button"
+                onClick={() => setResumenCierre(null)}
+                className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold rounded-xl text-xs transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ===== TICKET DE CORTE DE CAJA (OCULTO PARA PANTALLA, SOLO IMPRESIÓN) ===== */}
+      {resumenCierre && (
+        <div id="printable-corte" className="hidden print:block bg-white text-black p-2 text-[11px] font-sans absolute top-0 left-0">
+          <style>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+              #printable-corte, #printable-corte * {
+                visibility: visible !important;
+              }
+              #printable-corte {
+                position: absolute !important;
+                left: 2mm !important;
+                top: 2mm !important;
+                width: 76mm !important;
+                max-width: 76mm !important;
+                display: block !important;
+                background: white !important;
+                color: #000000 !important;
+                font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+              }
+            }
+            .corte-divider {
+              border-top: 1px solid #000000;
+              margin: 8px 0;
+            }
+            .corte-title {
+              font-size: 12px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+          `}</style>
+          
+          <div className="text-center mb-3">
+            <h4 className="corte-title">Club Campestre Lourdes</h4>
+            <div className="text-[10px] font-bold uppercase tracking-wider mt-1">Corte de Caja / Cierre</div>
+            <div className="text-[9px] font-bold">Turno #{resumenCierre.id}</div>
+          </div>
+
+          <div className="corte-divider"></div>
+
+          <div className="space-y-1 text-[10px]">
+            <div><strong>APERTURA:</strong> {new Date(resumenCierre.abierto_at).toLocaleString('es-MX')}</div>
+            <div><strong>CIERRE:</strong> {new Date(resumenCierre.cerrado_at).toLocaleString('es-MX')}</div>
+          </div>
+
+          <div className="corte-divider"></div>
+
+          <div className="space-y-1.5 text-[11px]">
+            <div className="flex justify-between">
+              <span>Fondo Inicial:</span>
+              <span className="font-bold">${resumenCierre.fondo_inicial.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Ventas Efectivo:</span>
+              <span className="font-bold">+${resumenCierre.efectivo_ventas.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Ingresos Caja:</span>
+              <span className="font-bold">+${(resumenCierre.total_ingresos || 0).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Retiros Caja:</span>
+              <span className="font-bold">-${(resumenCierre.total_retiros || 0).toFixed(2)}</span>
+            </div>
+            <div className="corte-divider"></div>
+            <div className="flex justify-between font-black text-xs">
+              <span>EFECTIVO ESPERADO:</span>
+              <span>
+                ${(resumenCierre.caja_efectivo_final !== undefined ? resumenCierre.caja_efectivo_final : (resumenCierre.fondo_inicial + resumenCierre.efectivo_ventas + (resumenCierre.total_ingresos || 0) - (resumenCierre.total_retiros || 0))).toFixed(2)}
+              </span>
+            </div>
+            <div className="corte-divider"></div>
+            <div className="flex justify-between">
+              <span>Ventas Tarjeta:</span>
+              <span className="font-bold">${resumenCierre.tarjeta_ventas.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Ventas Transferencia:</span>
+              <span className="font-bold">${(resumenCierre.transferencia_ventas || 0).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Cargos a Socios:</span>
+              <span className="font-bold">${resumenCierre.cargos_socios_adeudos.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {resumenCierre.retiros && resumenCierre.retiros.length > 0 && (
+            <>
+              <div className="corte-divider"></div>
+              <div className="text-[9px] font-bold uppercase tracking-wider mb-1">Movimientos de Caja:</div>
+              <div className="space-y-1">
+                {resumenCierre.retiros.map((r: any) => (
+                  <div key={r.id} className="text-[10px] flex justify-between">
+                    <span>{r.tipo === 'INGRESO' ? '📥 Ingreso' : '📤 Retiro'}: {r.motivo}</span>
+                    <span className="font-bold">${r.monto.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="corte-divider"></div>
+
+          <div className="mt-8 flex justify-between gap-4 text-center text-[9px] pt-4">
+            <div className="flex-1">
+              <div className="border-t border-black pt-1">Firma Cajero</div>
+            </div>
+            <div className="flex-1">
+              <div className="border-t border-black pt-1">Firma Supervisor</div>
+            </div>
           </div>
         </div>
       )}

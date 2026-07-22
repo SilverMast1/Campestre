@@ -27,20 +27,31 @@ export default function VentasTurnoView() {
       const resCuentas = await fetch('/api/admin/cuentas?solo_turno_activo=true', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const dataCuentas = await resCuentas.json();
-      if (resCuentas.ok) {
-        setCuentas(dataCuentas);
-      } else {
-        throw new Error(dataCuentas.error || 'Error al obtener cuentas');
+      
+      if (!resCuentas.ok) {
+        let errorMsg = 'Error al obtener cuentas';
+        try {
+          const errData = await resCuentas.json();
+          errorMsg = errData.error || errorMsg;
+        } catch (e) {}
+        throw new Error(errorMsg);
       }
+      
+      const dataCuentas = await resCuentas.json();
+      setCuentas(dataCuentas);
 
       // 2. Obtener turno activo
       const resTurno = await fetch('/api/admin/turno/activo', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const dataTurno = await resTurno.json();
-      if (resTurno.ok && dataTurno.activo) {
-        setTurnoActivo(dataTurno);
+      
+      if (resTurno.ok) {
+        const dataTurno = await resTurno.json();
+        if (dataTurno.activo) {
+          setTurnoActivo(dataTurno);
+        } else {
+          setTurnoActivo(null);
+        }
       } else {
         setTurnoActivo(null);
       }

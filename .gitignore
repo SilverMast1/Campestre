@@ -40,3 +40,33 @@ pnpm-debug.log*
 # Archivos del Sistema Operativo
 .DS_Store
 Thumbs.db
+
+# Base de datos SQLite local (no subir a producción)
+backend/prisma/dev.db
+backend/prisma/dev.db-shm
+backend/prisma/dev.db-wal
+backend/prisma/test.db
+*.db-shm
+*.db-wal
+
+# Archivos de scratch/debug
+backend/scratch/
+backend/src/adjust_caja.ts
+backend/src/check_*.ts
+backend/src/find_*.ts
+backend/src/fix_encodings.ts
+backend/src/optimize_db_sqlite.ts
+backend/src/verify_api.ts
+backend/src/check_nodes.ps1
+
+# Archivos de backup y migración local
+campestre_backup.sql
+backup_log.txt
+scripts/migrate_sqlite_to_supabase.js
+scripts/restore_sqlite_history_to_supabase.js
+
+# Graphify cache
+.graphify/
+
+# Agents config
+.agents/

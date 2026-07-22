@@ -1,20 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { useStore } from './store';
-import POSView from './views/POSView';
-import SocioView from './views/SocioView';
-import AdminView from './views/AdminView';
-import CargosSociosView from './views/CargosSociosView';
-import StockView from './views/StockView';
-import InsumosView from './views/InsumosView';
-import DividirCadiView from './views/DividirCadiView';
-import VentasTurnoView from './views/VentasTurnoView';
-import { Shield, Users, LogOut, Menu, UserCheck, Lock } from 'lucide-react';
+
+const POSView = lazy(() => import('./views/POSView'));
+const SocioView = lazy(() => import('./views/SocioView'));
+const AdminView = lazy(() => import('./views/AdminView'));
+const CargosSociosView = lazy(() => import('./views/CargosSociosView'));
+const StockView = lazy(() => import('./views/StockView'));
+const InsumosView = lazy(() => import('./views/InsumosView'));
+const DividirCadiView = lazy(() => import('./views/DividirCadiView'));
+const VentasTurnoView = lazy(() => import('./views/VentasTurnoView'));
+import { Shield, Users, LogOut, Menu, UserCheck, Lock, Fingerprint, CheckCircle2, RefreshCw, Sun, Moon } from 'lucide-react';
 import Logo from './components/Logo';
 
 function App() {
-  const { token, userType, user, socio, logout, setSession } = useStore();
-  const [activeTab, setActiveTab] = useState<'login-vendedor' | 'login-socio' | 'registro-socio'>('login-vendedor');
-  const [currentInternalView, setCurrentInternalView] = useState<'pos' | 'cargos' | 'dividir-cadi' | 'admin' | 'stock' | 'insumos' | 'ventas-turno'>('pos');
+  const { token, userType, user, socio, logout, setSession, tema, toggleTema, currentView, setCurrentView } = useStore();
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const [activeTab, setActiveTab] = useState<'login-vendedor' | 'entrada-empleado'>('login-vendedor');
   const isAdmin = userType === 'INTERNAL' && user?.roles?.includes('ADMIN');
 
   // Estados de formularios
@@ -28,9 +29,51 @@ function App() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Estados para simulación de asistencia de empleados
+  const [codigoEmpleado, setCodigoEmpleado] = useState('');
+  const [asistenciaStatus, setAsistenciaStatus] = useState<'idle' | 'scanning' | 'success'>('idle');
+  const [asistenciaMsg, setAsistenciaMsg] = useState('');
+
+  React.useEffect(() => {
+    const handleLocationChange = () => {
+      const path = window.location.pathname;
+      setCurrentPath(path);
+      // Seguridad: Si un usuario interno ingresa a /socios, le cerramos sesión para evitar que vea el panel de ventas
+      if (path === '/socios' && token && userType === 'INTERNAL') {
+        logout();
+      }
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    
+    // Ejecutar chequeo inicial
+    if (window.location.pathname === '/socios' && token && userType === 'INTERNAL') {
+      logout();
+    }
+
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+    };
+  }, [token, userType, logout]);
+
+  const handleRegistroAsistencia = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAsistenciaStatus('scanning');
+    setAsistenciaMsg('');
+    setTimeout(() => {
+      setAsistenciaStatus('success');
+      const timeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setAsistenciaMsg(`¡Asistencia Registrada! Entrada/Salida confirmada para ${codigoEmpleado || 'Huella Biométrica'} a las ${timeStr}.`);
+      setCodigoEmpleado('');
+      setTimeout(() => {
+        setAsistenciaStatus('idle');
+        setAsistenciaMsg('');
+      }, 5000);
+    }, 1500);
+  };
+
   React.useEffect(() => {
     if (!token) {
-      setCurrentInternalView('pos');
+      setCurrentView('pos');
     }
   }, [token]);
 
@@ -111,8 +154,91 @@ function App() {
     }
   };
 
-  // Si no está autenticado, mostrar portal de accesos (Login/Registro)
+  // Si no está autenticado, mostrar portal de accesos (Login/Registro/Asistencia)
   if (!token) {
+    const isSocioPath = currentPath === '/socios';
+
+    if (isSocioPath) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
+          {/* Decoración de fondo premium estilo golf */}
+          <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-campestre-gold/10 blur-[120px] animate-pulse-slow"></div>
+          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-campestre-green/5 blur-[100px] animate-pulse-slow"></div>
+
+          <div className="w-full max-w-md glass-card rounded-3xl shadow-glass p-8 relative z-10">
+            <div className="text-center mb-6">
+              <Logo size="lg" className="mx-auto" />
+              <h2 className="text-xl font-bold text-white mt-4 Outfit">Portal de Socios</h2>
+              <p className="text-slate-400 text-xs mt-1">Consulte su consumo y estado de cuenta</p>
+            </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-4 py-2.5 rounded-xl mb-4 text-center font-medium">
+                {error}
+              </div>
+            )}
+
+            {success && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs px-4 py-2.5 rounded-xl mb-4 text-center font-medium">
+                {success}
+              </div>
+            )}
+
+            <form onSubmit={handleLoginSocio} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Nombre Completo del Socio</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                    <Users size={16} />
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Juan Pérez García"
+                    value={nombre}
+                    onChange={(e) => handleNombreChange(e.target.value)}
+                    onFocus={() => {
+                      if (nombre.length >= 2) {
+                        setMostrarSugerencias(true);
+                      }
+                    }}
+                    onBlur={() => setTimeout(() => setMostrarSugerencias(false), 200)}
+                    className="w-full pl-10 input-premium"
+                  />
+                  {mostrarSugerencias && sugerencias.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-800 rounded-xl shadow-lg max-h-40 overflow-y-auto divide-y divide-slate-800">
+                      {sugerencias.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setNombre(s.nombre);
+                            setSugerencias([]);
+                            setMostrarSugerencias(false);
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-xs hover:bg-slate-800 text-slate-350 hover:text-white transition-colors flex justify-between items-center"
+                        >
+                          <span className="font-semibold">{s.nombre}</span>
+                          <span className="text-[10px] text-campestre-gold font-mono">#{s.codigo_socio}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 font-bold rounded-xl btn-premium mt-6 shadow-lg shadow-campestre-gold/20"
+              >
+                {loading ? 'Ingresando...' : 'Ingresar a mi Portal'}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
         {/* Decoración de fondo premium estilo golf */}
@@ -122,7 +248,7 @@ function App() {
         <div className="w-full max-w-md glass-card rounded-3xl shadow-glass p-8 relative z-10">
           <div className="text-center mb-6">
             <Logo size="lg" className="mx-auto" />
-            <p className="text-slate-400 text-xs mt-2">POS & Portal de Gestión de Socios</p>
+            <p className="text-slate-400 text-xs mt-2">POS & Control de Accesos</p>
           </div>
 
           {/* Pestanas de acceso */}
@@ -138,14 +264,14 @@ function App() {
               Vendedores
             </button>
             <button
-              onClick={() => { setActiveTab('login-socio'); setError(''); setSuccess(''); }}
+              onClick={() => { setActiveTab('entrada-empleado'); setError(''); setSuccess(''); }}
               className={`flex-1 py-2 text-center text-xs font-semibold rounded-lg btn-premium ${
-                activeTab === 'login-socio'
+                activeTab === 'entrada-empleado'
                   ? 'bg-campestre-gold text-slate-950 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Socios Log-In
+              Entrada de Empleados
             </button>
           </div>
 
@@ -158,6 +284,13 @@ function App() {
           {success && (
             <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs px-4 py-2.5 rounded-xl mb-4 text-center font-medium">
               {success}
+            </div>
+          )}
+
+          {asistenciaMsg && (
+            <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs px-4 py-3 rounded-xl mb-4 text-center font-semibold flex items-center justify-center space-x-2">
+              <CheckCircle2 size={16} className="text-emerald-400 flex-shrink-0" />
+              <span>{asistenciaMsg}</span>
             </div>
           )}
 
@@ -205,56 +338,67 @@ function App() {
             </form>
           )}
 
-          {/* Formulario 2: Login Socios (Simplificado por Nombre) */}
-          {activeTab === 'login-socio' && (
-            <form onSubmit={handleLoginSocio} className="space-y-4">
+          {/* Formulario 2: Entrada de Empleados (Con simulación de huella digital) */}
+          {activeTab === 'entrada-empleado' && (
+            <form onSubmit={handleRegistroAsistencia} className="space-y-6">
+              <div className="flex flex-col items-center justify-center py-4 bg-slate-900/40 rounded-2xl border border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => handleRegistroAsistencia()}
+                  disabled={asistenciaStatus === 'scanning'}
+                  className={`relative p-6 rounded-full border-2 transition-all duration-300 ${
+                    asistenciaStatus === 'scanning'
+                      ? 'border-emerald-500 bg-emerald-500/10 shadow-emerald-500/20 animate-pulse scale-105'
+                      : asistenciaStatus === 'success'
+                      ? 'border-emerald-500 bg-emerald-500/20'
+                      : 'border-slate-700 hover:border-campestre-gold bg-slate-850 hover:bg-slate-800/60 shadow-lg cursor-pointer'
+                  }`}
+                >
+                  {asistenciaStatus === 'scanning' ? (
+                    <RefreshCw className="text-emerald-400 animate-spin" size={40} />
+                  ) : (
+                    <Fingerprint
+                      className={`${
+                        asistenciaStatus === 'success' ? 'text-emerald-400' : 'text-slate-400 hover:text-campestre-gold'
+                      }`}
+                      size={40}
+                    />
+                  )}
+                  {asistenciaStatus === 'scanning' && (
+                    <span className="absolute inset-0 rounded-full border-4 border-emerald-500/40 animate-ping"></span>
+                  )}
+                </button>
+                <span className="text-[11px] text-slate-400 font-semibold mt-4 text-center px-4">
+                  {asistenciaStatus === 'scanning'
+                    ? 'Leyendo huella digital...'
+                    : asistenciaStatus === 'success'
+                    ? '¡Lectura de huella exitosa!'
+                    : 'Coloque su dedo en el lector biométrico o haga clic para escanear'}
+                </span>
+              </div>
+
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Nombre Completo del Socio</label>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Código o Nombre de Empleado (Alternativo)</label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
-                    <Users size={16} />
+                    <UserCheck size={16} />
                   </span>
                   <input
                     type="text"
-                    required
-                    placeholder="E.g. Juan Pérez García"
-                    value={nombre}
-                    onChange={(e) => handleNombreChange(e.target.value)}
-                    onFocus={() => {
-                      if (nombre.length >= 2) {
-                        setMostrarSugerencias(true);
-                      }
-                    }}
-                    onBlur={() => setTimeout(() => setMostrarSugerencias(false), 200)}
+                    placeholder="Ej. EMP-001 o Nombre"
+                    value={codigoEmpleado}
+                    onChange={(e) => setCodigoEmpleado(e.target.value)}
                     className="w-full pl-10 input-premium"
                   />
-                  {mostrarSugerencias && sugerencias.length > 0 && (
-                    <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-800 rounded-xl shadow-lg max-h-40 overflow-y-auto divide-y divide-slate-800">
-                      {sugerencias.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => {
-                            setNombre(s.nombre);
-                            setSugerencias([]);
-                            setMostrarSugerencias(false);
-                          }}
-                          className="w-full px-4 py-2.5 text-left text-xs hover:bg-slate-800 text-slate-350 hover:text-white transition-colors flex justify-between items-center"
-                        >
-                          <span className="font-semibold">{s.nombre}</span>
-                          <span className="text-[10px] text-campestre-gold font-mono">#{s.codigo_socio}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
+
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 font-bold rounded-xl btn-premium mt-6 shadow-lg shadow-campestre-gold/20"
+                disabled={asistenciaStatus === 'scanning'}
+                className="w-full py-3 bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 font-bold rounded-xl btn-premium shadow-lg shadow-campestre-gold/20 flex items-center justify-center space-x-2"
               >
-                {loading ? 'Ingresando...' : 'Ingresar a mi Portal'}
+                <span>Registrar Asistencia</span>
               </button>
             </form>
           )}
@@ -276,7 +420,7 @@ function App() {
                 CCL <span className="gold-gradient-text">Lourdes</span>
               </span>
               <span className="text-[9px] text-slate-400 tracking-wider uppercase block">
-                {userType === 'INTERNAL' ? 'Punto de Venta POS' : 'Portal del Socio'}
+                {userType === 'INTERNAL' ? 'Campestre System' : 'Portal del Socio'}
               </span>
             </div>
           </div>
@@ -302,6 +446,14 @@ function App() {
             )}
 
             <button
+              onClick={toggleTema}
+              className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-campestre-gold transition-all btn-premium"
+              title={tema === 'oscuro' ? 'Modo claro' : 'Modo oscuro'}
+            >
+              {tema === 'oscuro' ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
+
+            <button
               onClick={logout}
               className="p-2.5 rounded-xl bg-slate-800 hover:bg-red-500/10 hover:text-red-400 transition-all text-slate-400 btn-premium"
               title="Cerrar sesión"
@@ -318,33 +470,33 @@ function App() {
           <div className="space-y-6">
             <div className="flex flex-wrap bg-slate-900 p-1 rounded-xl w-fit border border-slate-800 gap-1">
               <button
-                onClick={() => setCurrentInternalView('pos')}
+                onClick={() => setCurrentView('pos')}
                 className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                  currentInternalView === 'pos' ? 'bg-campestre-green text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                  currentView === 'pos' ? 'bg-campestre-green text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Punto de Venta (POS)
+                Ventas
               </button>
               <button
-                onClick={() => setCurrentInternalView('cargos')}
+                onClick={() => setCurrentView('cargos')}
                 className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                  currentInternalView === 'cargos' ? 'bg-campestre-gold text-slate-950 shadow-sm' : 'text-slate-450 hover:text-slate-200'
+                  currentView === 'cargos' ? 'bg-campestre-gold text-slate-950 shadow-sm' : 'text-slate-450 hover:text-slate-200'
                 }`}
               >
                 Cargos a Socios
               </button>
               <button
-                onClick={() => setCurrentInternalView('dividir-cadi')}
+                onClick={() => setCurrentView('dividir-cadi')}
                 className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                  currentInternalView === 'dividir-cadi' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
+                  currentView === 'dividir-cadi' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
                 }`}
               >
                 Dividir Cuentas (Cadi)
               </button>
               <button
-                onClick={() => setCurrentInternalView('ventas-turno')}
+                onClick={() => setCurrentView('ventas-turno')}
                 className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                  currentInternalView === 'ventas-turno' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
+                  currentView === 'ventas-turno' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
                 }`}
               >
                 Ventas de Turno
@@ -352,25 +504,25 @@ function App() {
               {isAdmin ? (
                 <>
                   <button
-                    onClick={() => setCurrentInternalView('admin')}
+                    onClick={() => setCurrentView('admin')}
                     className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                      currentInternalView === 'admin' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
+                      currentView === 'admin' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
                     }`}
                   >
                     Gestión Administrativa
                   </button>
                   <button
-                    onClick={() => setCurrentInternalView('stock')}
+                    onClick={() => setCurrentView('stock')}
                     className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                      currentInternalView === 'stock' ? 'bg-indigo-650 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
+                      currentView === 'stock' ? 'bg-indigo-650 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
                     }`}
                   >
                     Inventario y Stock
                   </button>
                   <button
-                    onClick={() => setCurrentInternalView('insumos')}
+                    onClick={() => setCurrentView('insumos')}
                     className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                      currentInternalView === 'insumos' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
+                      currentView === 'insumos' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
                     }`}
                   >
                     Insumos de Comida
@@ -378,9 +530,9 @@ function App() {
                 </>
               ) : (
                 <button
-                  onClick={() => setCurrentInternalView('admin')}
+                  onClick={() => setCurrentView('admin')}
                   className={`px-4 py-2 text-xs font-semibold rounded-lg btn-premium transition-all ${
-                    currentInternalView === 'admin' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
+                    currentView === 'admin' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-450 hover:text-slate-200'
                   }`}
                 >
                   Corte de Caja
@@ -388,17 +540,31 @@ function App() {
               )}
             </div>
 
-            {currentInternalView === 'pos' && <POSView />}
-            {currentInternalView === 'cargos' && <CargosSociosView />}
-            {currentInternalView === 'dividir-cadi' && <DividirCadiView />}
-            {currentInternalView === 'ventas-turno' && <VentasTurnoView />}
-            {currentInternalView === 'admin' && <AdminView />}
-            {isAdmin && currentInternalView === 'stock' && <StockView />}
-            {isAdmin && currentInternalView === 'insumos' && <InsumosView />}
+            <Suspense fallback={
+              <div className="flex flex-col items-center justify-center py-20 text-slate-400 space-y-3">
+                <RefreshCw size={24} className="animate-spin text-campestre-gold" />
+                <span className="text-xs font-semibold">Cargando sección...</span>
+              </div>
+            }>
+              {currentView === 'pos' && <POSView />}
+              {currentView === 'cargos' && <CargosSociosView />}
+              {currentView === 'dividir-cadi' && <DividirCadiView />}
+              {currentView === 'ventas-turno' && <VentasTurnoView />}
+              {currentView === 'admin' && <AdminView />}
+              {isAdmin && currentView === 'stock' && <StockView />}
+              {isAdmin && currentView === 'insumos' && <InsumosView />}
+            </Suspense>
           </div>
         ) : (
           // Socio va a la vista de socio
-          <SocioView />
+          <Suspense fallback={
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 space-y-3">
+              <RefreshCw size={24} className="animate-spin text-campestre-gold" />
+              <span className="text-xs font-semibold">Cargando portal...</span>
+            </div>
+          }>
+            <SocioView />
+          </Suspense>
         )}
       </main>
     </div>

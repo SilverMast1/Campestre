@@ -11,5 +11,35 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/index.ts",
+    "src/db.ts",
+    "src/seed.ts",
+    "src/mock_sales_seeder.ts",
+    "src/export_seed.ts",
+    "src/controllers/**/*",
+    "src/middlewares/**/*"
+  ],
+  "exclude": [
+    "src/check_*.ts",
+    "src/find_*.ts",
+    "src/fix_*.ts",
+    "src/adjust_*.ts",
+    "src/verify_*.ts",
+    "src/optimize_*.ts",
+    "src/align_*.ts",
+    "src/calculate_*.ts",
+    "src/clear_*.ts",
+    "src/compare_*.ts",
+    "src/convert-*.ts",
+    "src/create_*.ts",
+    "src/import_*.ts",
+    "src/print_*.ts",
+    "src/reload_*.ts",
+    "src/reset_*.ts",
+    "src/restore_*.ts",
+    "src/update_*.ts",
+    "src/seed_report_data.ts",
+    "src/add_food_to_snack.ts"
+  ]
 }

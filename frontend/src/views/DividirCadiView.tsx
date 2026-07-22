@@ -94,14 +94,14 @@ export default function DividirCadiView() {
   };
 
   const cargarSocios = async () => {
-    const res = await fetch('/api/socio/buscar?q=SOCIO', {
+    const res = await fetch('/api/socios', {
       headers: { Authorization: `Bearer ${token}` }
     });
     const data = await res.json();
     if (res.ok) {
       setSocios(data);
     } else {
-      throw new Error(data.error || 'Error al buscar socios');
+      throw new Error(data.error || 'Error al cargar socios');
     }
   };
 

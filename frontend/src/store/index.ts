@@ -23,6 +23,10 @@ interface CartItem {
   categoria?: string;
   precio_unitario?: number;
   notas?: string;
+  guardado?: boolean;
+  esNuevo?: boolean;
+  created_at?: string;
+  detalle_id?: number;
 }
 
 interface POSState {
@@ -39,6 +43,12 @@ interface POSState {
   cuentaDetalle: any | null;
   splitPreview: any | null;
   socketConnected: boolean;
+  tema: 'oscuro' | 'claro';
+  toggleTema: () => void;
+  currentView: 'pos' | 'cargos' | 'dividir-cadi' | 'admin' | 'stock' | 'insumos' | 'ventas-turno';
+  setCurrentView: (view: 'pos' | 'cargos' | 'dividir-cadi' | 'admin' | 'stock' | 'insumos' | 'ventas-turno') => void;
+  sociosSeleccionados: any[];
+  setSociosSeleccionados: (socios: any[]) => void;
 
   // Acciones
   setSession: (token: string, data: any, type: 'INTERNAL' | 'CLIENT') => void;
@@ -63,7 +73,7 @@ export const useStore = create<POSState>((set) => ({
   user: JSON.parse(localStorage.getItem('campestre_user') || 'null'),
   socio: JSON.parse(localStorage.getItem('campestre_socio') || 'null'),
   userType: localStorage.getItem('campestre_user_type') as 'INTERNAL' | 'CLIENT' | null,
-  areaId: null,
+  areaId: localStorage.getItem('campestre_area_id') ? Number(localStorage.getItem('campestre_area_id')) : null,
   cadiId: null,
   nombreReferencia: '',
   productos: [],
@@ -72,6 +82,11 @@ export const useStore = create<POSState>((set) => ({
   cuentaDetalle: null,
   splitPreview: null,
   socketConnected: false,
+  tema: (localStorage.getItem('campestre_tema') as 'oscuro' | 'claro') || 'oscuro',
+  currentView: 'pos',
+  setCurrentView: (currentView) => set({ currentView }),
+  sociosSeleccionados: [],
+  setSociosSeleccionados: (sociosSeleccionados) => set({ sociosSeleccionados }),
 
   setSession: (token, data, type) => {
     localStorage.setItem('campestre_token', token);
@@ -90,6 +105,7 @@ export const useStore = create<POSState>((set) => ({
     localStorage.removeItem('campestre_user_type');
     localStorage.removeItem('campestre_user');
     localStorage.removeItem('campestre_socio');
+    localStorage.removeItem('campestre_area_id');
     set({
       token: null,
       user: null,
@@ -105,7 +121,14 @@ export const useStore = create<POSState>((set) => ({
     });
   },
 
-  setAreaId: (areaId) => set({ areaId, cart: [], cuentaId: null, cuentaDetalle: null, cadiId: null }),
+  setAreaId: (areaId) => {
+    if (areaId === null) {
+      localStorage.removeItem('campestre_area_id');
+    } else {
+      localStorage.setItem('campestre_area_id', String(areaId));
+    }
+    set({ areaId, cart: [], cuentaId: null, cuentaDetalle: null, cadiId: null });
+  },
   setCadiId: (cadiId) => set({ cadiId }),
   setNombreReferencia: (nombreReferencia) => set({ nombreReferencia }),
   setProductos: (productos) => set({ productos }),
@@ -113,14 +136,30 @@ export const useStore = create<POSState>((set) => ({
   addToCart: (producto) => set((state) => {
     const existing = state.cart.find((item) => item.id === producto.id);
     if (existing) {
+      const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
       return {
-        cart: state.cart.map((item) =>
-          item.id === producto.id ? { ...item, cantidad: item.cantidad + 1 } : item
-        ),
+        cart: state.cart.map((item) => {
+          if (item.id === producto.id) {
+            const currentNotes = item.notas ? item.notas.trim() : '';
+            const newNotes = currentNotes 
+              ? `${currentNotes} | +1 @ ${timeStr}`
+              : `+1 @ ${timeStr}`;
+            return {
+              ...item,
+              cantidad: item.cantidad + 1,
+              notas: newNotes,
+              esNuevo: true
+            };
+          }
+          return item;
+        }),
       };
     }
     return {
-      cart: [...state.cart, { id: producto.id, nombre: producto.nombre, precio_venta: producto.precio_venta, cantidad: 1, categoria: producto.categoria }],
+      cart: [
+        { id: producto.id, nombre: producto.nombre, precio_venta: producto.precio_venta, cantidad: 1, categoria: producto.categoria, guardado: false, esNuevo: true, created_at: new Date().toISOString() },
+        ...state.cart
+      ],
     };
   }),
 
@@ -145,4 +184,10 @@ export const useStore = create<POSState>((set) => ({
   setCuentaDetalle: (cuentaDetalle) => set({ cuentaDetalle }),
   setSplitPreview: (splitPreview) => set({ splitPreview }),
   setSocketConnected: (socketConnected) => set({ socketConnected }),
+  toggleTema: () => set((state) => {
+    const nuevo = state.tema === 'oscuro' ? 'claro' : 'oscuro';
+    localStorage.setItem('campestre_tema', nuevo);
+    document.documentElement.classList.toggle('tema-claro', nuevo === 'claro');
+    return { tema: nuevo };
+  }),
 }));

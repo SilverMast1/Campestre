@@ -1,7 +1,10 @@
 [build]
-  command = "npm run install:all && npm run build --prefix backend && npm run build --prefix frontend"
+  command = "npm run install:all && cd backend && npx prisma generate && npx tsc && cd .. && npm run build --prefix frontend"
   publish = "frontend/dist"
   functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
 
 [[redirects]]
   from = "/api/*"

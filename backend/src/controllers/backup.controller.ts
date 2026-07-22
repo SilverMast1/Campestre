@@ -5,14 +5,65 @@ import path from 'path';
 
 const prisma = new PrismaClient();
 
-// Rutas de archivos
+// Detectar si estamos usando SQLite (local) o PostgreSQL (producción)
+const isPostgres = !process.env.DATABASE_URL?.startsWith('file:');
+
+// Rutas de archivos (solo relevante en modo SQLite local)
 const DB_DIR = path.resolve(__dirname, '../../prisma');
 const DB_FILE = path.join(DB_DIR, 'dev.db');
 const BACKUPS_DIR = 'C:\\Users\\SERGIO\\Desktop\\copias de seguridad';
 
-// Asegurar que exista la carpeta de respaldos
-if (!fs.existsSync(BACKUPS_DIR)) {
-  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+// Asegurar que exista la carpeta de respaldos (solo en local)
+if (!isPostgres) {
+  try {
+    if (!fs.existsSync(BACKUPS_DIR)) {
+      fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+    }
+  } catch (e) {
+    console.warn('[Backup] No se pudo crear carpeta de respaldos:', e);
+  }
+}
+
+// ==========================================
+// RESPALDO AUTOMÁTICO CADA 8 HORAS (solo SQLite local)
+// ==========================================
+function realizarBackupAutomatico() {
+  if (isPostgres) return; // En PostgreSQL, Supabase maneja los backups
+  try {
+    if (!fs.existsSync(DB_FILE)) return;
+
+    const ahora = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const timestamp = `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}_${pad(ahora.getHours())}-${pad(ahora.getMinutes())}-${pad(ahora.getSeconds())}`;
+    const backupName = `backup_${timestamp}.db`;
+    const destPath = path.join(BACKUPS_DIR, backupName);
+
+    // Hacer checkpoint WAL antes de copiar
+    try {
+      const Database = require('better-sqlite3');
+      const db = new Database(DB_FILE, { readonly: true });
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      db.close();
+    } catch (e) {
+      console.warn('[AutoBackup] No se pudo hacer checkpoint WAL:', e);
+    }
+
+    fs.copyFileSync(DB_FILE, destPath);
+    fs.utimesSync(destPath, ahora, ahora);
+
+    console.log(`[AutoBackup] Respaldo automático creado: ${backupName}`);
+  } catch (error) {
+    console.error('[AutoBackup] Error al crear respaldo automático:', error);
+  }
+}
+
+// Iniciar ciclo automático cada 8 horas (solo en local/SQLite)
+if (!isPostgres) {
+  const OCHO_HORAS_MS = 8 * 60 * 60 * 1000;
+  setInterval(realizarBackupAutomatico, OCHO_HORAS_MS);
+  console.log('[AutoBackup] Respaldo automático cada 8 horas activado ✓');
+} else {
+  console.log('[Backup] Modo PostgreSQL — backups gestionados por Supabase ✓');
 }
 
 /**
@@ -20,6 +71,10 @@ if (!fs.existsSync(BACKUPS_DIR)) {
  */
 export async function listarBackups(req: Request, res: Response) {
   try {
+    if (isPostgres) {
+      return res.json({ message: 'Los respaldos en PostgreSQL son gestionados por Supabase', backups: [] });
+    }
+
     if (!fs.existsSync(BACKUPS_DIR)) {
       return res.json([]);
     }
@@ -33,10 +88,10 @@ export async function listarBackups(req: Request, res: Response) {
         return {
           nombre: file,
           fecha: stats.mtime,
-          tamano: stats.size, // bytes
+          tamano: stats.size,
         };
       })
-      .sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
+      .sort((a, b) => b.nombre.localeCompare(a.nombre));
 
     return res.json(backups);
   } catch (error) {
@@ -50,19 +105,37 @@ export async function listarBackups(req: Request, res: Response) {
  */
 export async function crearBackup(req: Request, res: Response) {
   try {
+    if (isPostgres) {
+      return res.json({ message: 'Los respaldos en PostgreSQL son gestionados automáticamente por Supabase' });
+    }
+
     if (!fs.existsSync(DB_FILE)) {
       return res.status(404).json({ error: 'Archivo de base de datos original no encontrado' });
     }
 
-    // Formatear fecha actual
     const ahora = new Date();
     const pad = (n: number) => n.toString().padStart(2, '0');
     const timestamp = `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}_${pad(ahora.getHours())}-${pad(ahora.getMinutes())}-${pad(ahora.getSeconds())}`;
     const backupName = `backup_${timestamp}.db`;
     const destPath = path.join(BACKUPS_DIR, backupName);
 
-    // Copiar archivo de base de datos
+    // Checkpoint WAL antes de copiar para garantizar datos completos
+    try {
+      const Database = require('better-sqlite3');
+      const db = new Database(DB_FILE, { readonly: true });
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      db.close();
+    } catch (e) {
+      console.warn('No se pudo hacer checkpoint WAL antes de backup:', e);
+    }
+
     fs.copyFileSync(DB_FILE, destPath);
+
+    try {
+      fs.utimesSync(destPath, ahora, ahora);
+    } catch (e) {
+      console.warn('No se pudo actualizar la fecha del archivo de respaldo:', e);
+    }
 
     return res.json({
       message: 'Respaldo creado con éxito',
@@ -79,10 +152,15 @@ export async function crearBackup(req: Request, res: Response) {
 }
 
 /**
- * Restaurar un respaldo seleccionado
+ * Restaurar un respaldo seleccionado.
+ * En modo SQLite usa better-sqlite3 para checkpoint WAL y liberar bloqueos.
  */
 export async function restaurarBackup(req: Request, res: Response) {
   const { nombreArchivo } = req.body;
+
+  if (isPostgres) {
+    return res.status(400).json({ error: 'La restauración manual no está disponible en modo PostgreSQL. Usa las herramientas de Supabase.' });
+  }
 
   if (!nombreArchivo) {
     return res.status(400).json({ error: 'El nombre del archivo de respaldo es requerido' });
@@ -91,50 +169,51 @@ export async function restaurarBackup(req: Request, res: Response) {
   const backupPath = path.join(BACKUPS_DIR, nombreArchivo);
 
   try {
-    // Validar existencia del respaldo y evitar path traversal
     if (!fs.existsSync(backupPath) || !nombreArchivo.startsWith('backup_') || !nombreArchivo.endsWith('.db')) {
       return res.status(404).json({ error: 'Archivo de respaldo no encontrado o inválido' });
     }
 
     console.log(`Iniciando restauración de respaldo: ${nombreArchivo}`);
 
-    // Desconectar Prisma temporalmente para liberar bloqueos
+    // Desconectar Prisma para liberar sus conexiones internas
     await prisma.$disconnect();
 
-    // Eliminar archivos temporales de SQLite si existen (WAL/SHM) para evitar inconsistencias
+    // Checkpoint WAL con better-sqlite3: vacía el WAL al archivo principal y cierra limpiamente
+    try {
+      const Database = require('better-sqlite3');
+      const db = new Database(DB_FILE);
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      db.close();
+      console.log('Checkpoint WAL completado — archivos WAL/SHM liberados.');
+    } catch (e) {
+      console.warn('No se pudo hacer checkpoint WAL, intentando continuar:', e);
+    }
+
+    // Breve pausa para garantizar que los file handles del SO se liberen
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Eliminar archivos WAL/SHM residuales si aún existen
     const walFile = `${DB_FILE}-wal`;
     const shmFile = `${DB_FILE}-shm`;
-
-    if (fs.existsSync(walFile)) {
-      try {
-        fs.unlinkSync(walFile);
-      } catch (e) {
-        console.warn('No se pudo borrar el archivo wal:', e);
+    for (const f of [walFile, shmFile]) {
+      if (fs.existsSync(f)) {
+        try { fs.unlinkSync(f); } catch (e) {
+          console.warn(`No se pudo borrar ${path.basename(f)}:`, e);
+        }
       }
     }
 
-    if (fs.existsSync(shmFile)) {
-      try {
-        fs.unlinkSync(shmFile);
-      } catch (e) {
-        console.warn('No se pudo borrar el archivo shm:', e);
-      }
-    }
-
-    // Copiar el archivo del respaldo sobre el archivo de base de datos activo
+    // Copiar el respaldo sobre la base de datos activa
     fs.copyFileSync(backupPath, DB_FILE);
 
-    // Volver a conectar Prisma
+    // Reconectar Prisma
     await prisma.$connect();
 
     console.log(`Restauración exitosa de: ${nombreArchivo}`);
     return res.json({ message: 'Base de datos restaurada con éxito' });
   } catch (error) {
     console.error('Error al restaurar respaldo:', error);
-    // Intentar reconectar por seguridad si falló algo
-    try {
-      await prisma.$connect();
-    } catch (_) {}
+    try { await prisma.$connect(); } catch (_) {}
     return res.status(500).json({ error: 'Error durante la restauración de la base de datos' });
   }
 }

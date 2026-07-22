@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { QRCodeSVG } from 'qrcode.react'; // SVG renderizador
 import { User, Calendar, MapPin, Receipt, RefreshCw, Key, ShieldCheck, Clipboard, DollarSign, Activity, Sparkles } from 'lucide-react';
+import { io } from 'socket.io-client';
 
 export default function SocioView() {
   const { token, socio } = useStore();
@@ -18,12 +19,21 @@ export default function SocioView() {
       cargarConsumos();
       cargarCuentaActiva();
 
-      // Consultar cuenta activa en tiempo real cada 10 segundos
-      const interval = setInterval(() => {
-        cargarCuentaActiva();
-      }, 10000);
+      const socket = io('/', {
+        path: '/socket.io',
+        transports: ['polling', 'websocket'],
+      });
 
-      return () => clearInterval(interval);
+      socket.on('cuenta:actualizar', () => {
+        console.log('Recibida notificación de cuenta en SocioView. Recargando datos de consumo y cuenta activa.');
+        cargarDatosPerfil();
+        cargarConsumos();
+        cargarCuentaActiva();
+      });
+
+      return () => {
+        socket.disconnect();
+      };
     }
   }, [token]);
 
@@ -98,7 +108,7 @@ export default function SocioView() {
   };
 
   const saldoPendienteTotal = consumos
-    .filter((c) => c.estado_pago !== 'PAGADO')
+    .filter((c) => c.estado_pago === 'PENDIENTE')
     .reduce((sum, c) => sum + c.mi_pago, 0);
 
   return (
@@ -125,59 +135,7 @@ export default function SocioView() {
           )}
         </div>
 
-        <div className="glass-card rounded-3xl border border-slate-800 p-6 flex flex-col items-center justify-center text-center relative overflow-hidden">
-          {/* Fondo decorativo premium */}
-          <div className="absolute -top-12 -left-12 w-24 h-24 rounded-full bg-campestre-gold/10 blur-xl"></div>
-          
-          <span className="text-[10px] text-campestre-gold font-bold uppercase tracking-widest bg-campestre-gold/10 px-3 py-1 rounded-full border border-campestre-gold/25 mb-4">
-            Membresía Activa
-          </span>
 
-          <h3 className="text-xl font-extrabold text-white Outfit">{socio?.nombre}</h3>
-          <p className="text-xs text-slate-400 mt-1">Socio No. <span className="font-bold text-white">{socio?.codigo_socio}</span></p>
-
-          {/* Renderizado de Código QR Dinámico */}
-          <div className="bg-white p-4 rounded-2xl my-6 shadow-premium border border-slate-700 w-48 h-48 flex items-center justify-center">
-            {perfil?.qr_token ? (
-              <QRCodeSVG
-                value={perfil.qr_token}
-                size={160}
-                bgColor={"#FFFFFF"}
-                fgColor={"#0f172a"}
-                level={"H"}
-                includeMargin={false}
-              />
-            ) : (
-              <div className="animate-pulse flex space-x-4">
-                <div className="rounded-lg bg-slate-300 h-40 w-40"></div>
-              </div>
-            )}
-          </div>
-
-          <p className="text-[10px] text-slate-400 max-w-xs mb-4">
-            Presenta este código QR en la Palapa, Bar o Snack del Club para asociar tus consumos directamente a tu membresía.
-          </p>
-
-          <div className="w-full space-y-2">
-            <button
-              onClick={regenerarQR}
-              className="w-full py-2.5 bg-slate-800 hover:bg-slate-750 text-white font-bold rounded-xl text-xs flex justify-center items-center space-x-2 btn-premium border border-slate-700"
-            >
-              <RefreshCw size={12} />
-              <span>Regenerar QR Seguro</span>
-            </button>
-
-            {perfil?.qr_token && (
-              <button
-                onClick={copiarTokenAlPortapapeles}
-                className="w-full py-2.5 bg-campestre-gold/10 hover:bg-campestre-gold/20 text-campestre-gold font-bold rounded-xl text-xs flex justify-center items-center space-x-2 btn-premium border border-campestre-gold/20"
-              >
-                <Clipboard size={12} />
-                <span>{copiado ? '¡Copiado!' : 'Copiar Token para POS'}</span>
-              </button>
-            )}
-          </div>
-        </div>
 
         {/* Datos de Contacto y Seguridad */}
         <div className="glass-card rounded-2xl border border-slate-800 p-5 space-y-4">
@@ -373,22 +331,41 @@ export default function SocioView() {
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded border w-fit uppercase tracking-wider block ${
                           c.estado_pago === 'PAGADO'
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : c.estado_pago === 'BORRADO'
+                            ? 'bg-slate-500/10 text-slate-400 border-slate-500/20'
                             : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
                         }`}>
-                          {c.estado_pago === 'PAGADO' ? `Pagado - ${c.metodo_pago.replace('_', ' ')}` : 'Adeudo / Pendiente'}
+                          {c.estado_pago === 'PAGADO' 
+                            ? `Pagado - ${c.metodo_pago.replace('_', ' ')}` 
+                            : c.estado_pago === 'BORRADO'
+                            ? 'Cancelado / Anulado'
+                            : 'Adeudo / Pendiente'}
                         </span>
                         {c.estado_pago === 'PAGADO' && c.fecha_pago && (
                           <span className="text-[8px] text-slate-500 font-mono">
                             Pagado el: {new Date(c.fecha_pago).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
                           </span>
                         )}
+                        {c.estado_pago === 'BORRADO' && c.fecha_pago && (
+                          <span className="text-[8px] text-slate-500 font-mono">
+                            Anulado el: {new Date(c.fecha_pago).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                          </span>
+                        )}
                       </div>
                       <div className="text-right">
                         <span className="text-[10px] text-slate-400 block font-medium">
-                          {c.estado_pago === 'PAGADO' ? 'Mi Cargo Liquidado:' : 'Monto Pendiente:'}
+                          {c.estado_pago === 'PAGADO' 
+                            ? 'Mi Cargo Liquidado:' 
+                            : c.estado_pago === 'BORRADO'
+                            ? 'Monto Anulado:'
+                            : 'Monto Pendiente:'}
                         </span>
                         <span className={`text-sm font-extrabold Outfit ${
-                          c.estado_pago === 'PAGADO' ? 'text-white' : 'text-rose-450'
+                          c.estado_pago === 'PAGADO' 
+                            ? 'text-white' 
+                            : c.estado_pago === 'BORRADO'
+                            ? 'text-slate-400 line-through'
+                            : 'text-rose-450'
                         }`}>
                           ${c.mi_pago.toFixed(2)}
                         </span>

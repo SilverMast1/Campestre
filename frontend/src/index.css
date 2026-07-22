@@ -79,3 +79,28 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(197, 160, 89, 0.7);
 }
+
+/* ============================
+   TEMA CLARO
+   ============================ */
+.tema-claro body {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.tema-claro .glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.tema-claro .bg-slate-900 { background-color: #f8fafc !important; }
+.tema-claro .bg-slate-900\/40 { background-color: rgba(248, 250, 252, 0.9) !important; }
+.tema-claro .bg-slate-900\/60 { background-color: rgba(248, 250, 252, 0.95) !important; }
+.tema-claro .bg-slate-950 { background-color: #f1f5f9 !important; }
+.tema-claro .border-slate-800 { border-color: #cbd5e1 !important; }
+.tema-claro .text-white { color: #0f172a !important; }
+.tema-claro .text-slate-400 { color: #64748b !important; }
+.tema-claro .text-slate-300 { color: #475569 !important; }
+.tema-claro .bg-slate-800 { background-color: #e2e8f0 !important; }
+.tema-claro .input-premium { background: rgba(226, 232, 240, 0.8) !important; border-color: #94a3b8 !important; color: #0f172a !important; }
+

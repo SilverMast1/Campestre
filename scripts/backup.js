@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { PrismaClient } = require('../backend/node_modules/@prisma/client');
 
-// Configuration
-const DB_FILE = path.join(__dirname, '../backend/prisma/dev.db');
+const prisma = new PrismaClient();
 const BACKUPS_DIR = 'C:\\Users\\SERGIO\\Desktop\\copias de seguridad';
 const KEEP_DAYS = 30;
 
@@ -19,15 +19,9 @@ function getTimestamp() {
 }
 
 async function runBackup() {
-  console.log('--- Iniciando Copia de Seguridad ---');
+  console.log('--- Iniciando Copia de Seguridad de Supabase ---');
   console.log(`Fecha/Hora local: ${new Date().toLocaleString()}`);
-  
-  if (!fs.existsSync(DB_FILE)) {
-    console.error(`Error: No se encontró el archivo de base de datos en: ${DB_FILE}`);
-    process.exit(1);
-  }
 
-  // Ensure backup directory exists
   if (!fs.existsSync(BACKUPS_DIR)) {
     console.log(`Creando directorio de copias de seguridad: ${BACKUPS_DIR}`);
     fs.mkdirSync(BACKUPS_DIR, { recursive: true });
@@ -35,50 +29,60 @@ async function runBackup() {
 
   const force = process.argv.includes('--force') || process.argv.includes('-f');
   const todayStr = getLocalDateString();
-  
-  // Check if a backup for today already exists
+
   if (!force) {
     const existingFiles = fs.readdirSync(BACKUPS_DIR);
-    const todayBackupExists = existingFiles.some(file => file.startsWith(`backup_${todayStr}_`) && file.endsWith('.db'));
+    const todayBackupExists = existingFiles.some(file => file.startsWith(`backup_${todayStr}_`));
     if (todayBackupExists) {
       console.log(`Ya existe una copia de seguridad para el día de hoy (${todayStr}).`);
       console.log('Use el parámetro --force o -f para forzar una nueva copia de seguridad.');
       console.log('--- Fin del proceso (Sin cambios) ---');
+      await prisma.$disconnect();
       return;
     }
   }
 
   const timestamp = getTimestamp();
-  const backupName = `backup_${timestamp}.db`;
+  const backupName = `backup_${timestamp}.json`;
   const destPath = path.join(BACKUPS_DIR, backupName);
 
   try {
-    console.log(`Copiando base de datos a: ${destPath}`);
-    fs.copyFileSync(DB_FILE, destPath);
-    
-    // Check files size
-    const origSize = fs.statSync(DB_FILE).size;
+    console.log('Extrayendo snapshot de datos desde Supabase...');
+    const snapshot = {
+      timestamp: new Date().toISOString(),
+      roles: await prisma.role.findMany(),
+      usuarios: await prisma.usuario.findMany(),
+      usuarioRoles: await prisma.usuarioRole.findMany(),
+      areas: await prisma.area.findMany(),
+      cadis: await prisma.cadi.findMany(),
+      clientes: await prisma.cliente.findMany(),
+      insumos: await prisma.insumo.findMany(),
+      productos: await prisma.producto.findMany(),
+      recetas: await prisma.recetaIngrediente.findMany(),
+      inventarioArea: await prisma.inventarioArea.findMany(),
+      cuentas: await prisma.cuenta.findMany(),
+      detalleCuentas: await prisma.detalleCuenta.findMany(),
+      divisionesCuenta: await prisma.divisionCuenta.findMany(),
+      turnos: await prisma.turno.findMany(),
+      movimientosInventario: await prisma.movimientoInventario.findMany(),
+      retirosCaja: await prisma.retiroCaja.findMany(),
+    };
+
+    console.log(`Escribiendo copia de seguridad en: ${destPath}`);
+    const dataStr = JSON.stringify(snapshot, null, 2);
+    fs.writeFileSync(destPath, dataStr, 'utf8');
+
     const destSize = fs.statSync(destPath).size;
-    
     console.log(`¡Copia de seguridad creada con éxito!`);
     console.log(`Archivo: ${backupName}`);
-    console.log(`Tamaño original: ${(origSize / 1024).toFixed(2)} KB`);
     console.log(`Tamaño copia: ${(destSize / 1024).toFixed(2)} KB`);
-    
-    // Also copy WAL file if it has content, for completeness
-    const walFile = `${DB_FILE}-wal`;
-    if (fs.existsSync(walFile) && fs.statSync(walFile).size > 0) {
-      const destWalPath = `${destPath}-wal`;
-      fs.copyFileSync(walFile, destWalPath);
-      console.log(`Copiado archivo de transacciones WAL: ${backupName}-wal`);
-    }
 
-    // Cleanup old backups
     cleanOldBackups();
-
   } catch (error) {
     console.error('Error al realizar la copia de seguridad:', error);
     process.exit(1);
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
@@ -88,15 +92,12 @@ function cleanOldBackups() {
     const files = fs.readdirSync(BACKUPS_DIR);
     const now = new Date();
     const cutoffTime = now.getTime() - (KEEP_DAYS * 24 * 60 * 60 * 1000);
-    
     let deletedCount = 0;
-    
+
     files.forEach(file => {
-      // We only target files starting with "backup_" and ending with ".db" or ".db-wal"
-      if (file.startsWith('backup_') && (file.endsWith('.db') || file.endsWith('.db-wal'))) {
+      if (file.startsWith('backup_')) {
         const filePath = path.join(BACKUPS_DIR, file);
         const stats = fs.statSync(filePath);
-        
         if (stats.mtimeMs < cutoffTime) {
           console.log(`Eliminando copia antigua: ${file}`);
           fs.unlinkSync(filePath);
@@ -104,7 +105,7 @@ function cleanOldBackups() {
         }
       }
     });
-    
+
     if (deletedCount === 0) {
       console.log('No se encontraron copias de seguridad antiguas para eliminar.');
     } else {

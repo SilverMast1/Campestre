@@ -92,39 +92,33 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
 
-          // Si es CARGO_SOCIO, es un cargo generado en este turno
-          if (metodo === 'CARGO_SOCIO') {
+          const esCargoOriginario = metodo === 'CARGO_SOCIO' || (div.turno_pago_id && div.turno_pago_id !== turno.id);
+
+          // Si es un cargo generado originariamente en este turno
+          if (esCargoOriginario) {
             cargos = cargos.plus(montoDec);
             pagos.push({
               cliente_id: div.cliente_id,
               nombre: div.cliente.nombre,
               monto: Number(montoDec),
-              metodo: div.metodo_pago,
+              metodo: 'CARGO_SOCIO',
             });
           }
-          // Si fue pago inmediato en efectivo/tarjeta (no tiene turno_pago_id, método no es CARGO_SOCIO)
-          else if (!div.turno_pago_id) {
-            if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
-            else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
-            else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
-            else if (metodo === 'MIXTO') {
-              efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
-              tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+          // Si fue pago inmediato en efectivo/tarjeta o se pagó en este turno
+          else if (!div.turno_pago_id || div.turno_pago_id === turno.id) {
+            if (!div.turno_pago_id) {
+              if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
+              else if (metodo === 'TARJETA') tarjeta = tarjeta.plus(montoDec);
+              else if (metodo === 'TRANSFERENCIA') transferencia = transferencia.plus(montoDec);
+              else if (metodo === 'MIXTO') {
+                efectivo = efectivo.plus(new Decimal(div.monto_efectivo || 0));
+                tarjeta = tarjeta.plus(new Decimal(div.monto_tarjeta || 0));
+              }
             }
 
             pagos.push({
               cliente_id: div.cliente_id,
               nombre: div.cliente.nombre,
-              monto: Number(montoDec),
-              metodo: div.metodo_pago,
-            });
-          }
-          // Si tiene turno_pago_id, se contará por separado en divisionesPagadasTurno
-          // Pero lo agregamos a los pagos de la cuenta para mostrar en el POS
-          else {
-            pagos.push({
-              cliente_id: div.cliente_id,
-              nombre: `${div.cliente.nombre} (Pagado después)`,
               monto: Number(montoDec),
               metodo: div.metodo_pago,
             });
@@ -172,15 +166,36 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
         });
       }
 
+      const productos = cuenta.detalleCuentas.map(det => ({
+        id: det.producto.id,
+        nombre: det.producto.nombre,
+        precio_venta: Number(det.precio_unitario),
+        cantidad: Number(det.cantidad),
+        categoria: det.producto.categoria,
+        notas: det.notas || '',
+        subtotal: Number(det.subtotal)
+      }));
+
+      const socios = cuenta.divisionesCuentas.map(div => ({
+        id: div.cliente.id,
+        nombre: div.cliente.nombre,
+        codigo_socio: div.cliente.codigo_socio
+      }));
+
       ventas.push({
         id: Number(cuenta.id),
         referencia: cuenta.nombre_referencia || '—',
         fecha: cuenta.closed_at,
         area: cuenta.area_id === 1 ? 'Bar' : cuenta.area_id === 2 ? 'Snack' : 'Palapa',
+        area_id: cuenta.area_id,
         usuario_id: cuenta.usuario_id,
         atendido_por: cuenta.usuario?.nombre || 'Desconocido',
         total: Number(cuenta.total),
+        descuento: Number(cuenta.descuento),
+        cadi_id: cuenta.cadi_id,
         items,
+        productos,
+        socios,
         pagos,
       });
     });
@@ -418,7 +433,9 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
           const montoDec = new Decimal(div.monto_proporcional);
           const metodo = div.metodo_pago;
           
-          if (metodo === 'CARGO_SOCIO') {
+          const esCargoOriginario = metodo === 'CARGO_SOCIO' || (div.turno_pago_id && div.turno_pago_id !== turno.id);
+
+          if (esCargoOriginario) {
             cargos = cargos.plus(montoDec);
           } else if (!div.turno_pago_id) {
             if (metodo === 'EFECTIVO') efectivo = efectivo.plus(montoDec);
@@ -502,6 +519,16 @@ export async function cerrarTurno(req: AuthenticatedRequest, res: Response) {
         cargos_socios_adeudos: cargos.toNumber(),
         abierto_at: turnoCerrado.abierto_at,
         cerrado_at: turnoCerrado.cerrado_at,
+        total_retiros: totalRetiros.toNumber(),
+        total_ingresos: totalIngresos.toNumber(),
+        caja_efectivo_final: finalEfectivoCaja.toNumber(),
+        retiros: turno.retiros ? turno.retiros.map(r => ({
+          id: r.id,
+          monto: Number(r.monto),
+          motivo: r.motivo,
+          tipo: r.tipo || 'RETIRO',
+          fecha: r.created_at,
+        })) : [],
       }
     });
   } catch (error) {
@@ -525,15 +552,7 @@ export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Respon
   try {
     const turnoActivo = await prisma.turno.findFirst({
       where: { activo: true, ...(area_id ? { area_id: Number(area_id) } : {}) },
-      include: {
-        cuentas: {
-          where: { estado: 'PAGADA' },
-          include: {
-            divisionesCuentas: true,
-          },
-        },
-        retiros: true,
-      },
+      select: { id: true, fondo_inicial: true }
     });
 
     if (!turnoActivo) {
@@ -542,23 +561,53 @@ export async function registrarRetiroCaja(req: AuthenticatedRequest, res: Respon
 
     const montoDec = new Decimal(monto);
 
-    // Validar que hay suficiente efectivo en caja
-    let efectivoVentas = new Decimal(0);
-    turnoActivo.cuentas.forEach(cuenta => {
-      if (cuenta.divisionesCuentas.length > 0) {
-        cuenta.divisionesCuentas.forEach(div => {
-          if (div.metodo_pago === 'EFECTIVO') {
-            efectivoVentas = efectivoVentas.plus(new Decimal(div.monto_proporcional));
-          }
-        });
-      } else if (cuenta.metodo_pago === 'EFECTIVO') {
-        efectivoVentas = efectivoVentas.plus(new Decimal(cuenta.total));
+    // Suma de cuentas directas (sin divisiones) en efectivo
+    const sumaCuentasDirectas = await prisma.cuenta.aggregate({
+      _sum: { total: true },
+      where: {
+        turno_id: turnoActivo.id,
+        estado: 'PAGADA',
+        metodo_pago: 'EFECTIVO',
+        divisionesCuentas: { none: {} }
       }
     });
 
-    const totalRetirosPrevios = turnoActivo.retiros.filter(r => r.tipo !== 'INGRESO').reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
-    const totalIngresosPrevios = turnoActivo.retiros.filter(r => r.tipo === 'INGRESO').reduce((sum, r) => sum.plus(new Decimal(r.monto)), new Decimal(0));
-    const efectivoDisponible = efectivoVentas.plus(turnoActivo.fondo_inicial).plus(totalIngresosPrevios).minus(totalRetirosPrevios);
+    // Suma de divisiones en efectivo
+    const sumaCuentasSplit = await prisma.divisionCuenta.aggregate({
+      _sum: { monto_proporcional: true },
+      where: {
+        cuenta: {
+          turno_id: turnoActivo.id,
+          estado: 'PAGADA'
+        },
+        metodo_pago: 'EFECTIVO'
+      }
+    });
+
+    const efectivoVentas = new Decimal(sumaCuentasDirectas._sum.total || 0)
+      .plus(new Decimal(sumaCuentasSplit._sum.monto_proporcional || 0));
+
+    // Suma de retiros previos
+    const sumaRetiros = await prisma.retiroCaja.aggregate({
+      _sum: { monto: true },
+      where: {
+        turno_id: turnoActivo.id,
+        tipo: 'RETIRO'
+      }
+    });
+
+    // Suma de ingresos previos
+    const sumaIngresos = await prisma.retiroCaja.aggregate({
+      _sum: { monto: true },
+      where: {
+        turno_id: turnoActivo.id,
+        tipo: 'INGRESO'
+      }
+    });
+
+    const totalRetirosPrevios = new Decimal(sumaRetiros._sum.monto || 0);
+    const totalIngresosPrevios = new Decimal(sumaIngresos._sum.monto || 0);
+    const efectivoDisponible = efectivoVentas.plus(new Decimal(turnoActivo.fondo_inicial)).plus(totalIngresosPrevios).minus(totalRetirosPrevios);
 
     if (montoDec.greaterThan(efectivoDisponible)) {
       return res.status(400).json({ 

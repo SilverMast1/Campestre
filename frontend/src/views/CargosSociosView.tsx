@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { Search, Users, RefreshCw, Eye, CreditCard, DollarSign, X, Check, Calendar, AlertCircle, Trash2, Smartphone } from 'lucide-react';
+import { io } from 'socket.io-client';
 
 interface SocioCargo {
   id: number;
@@ -20,6 +21,7 @@ interface CargoDetalle {
   monto: number;
   porcentaje_participacion: number;
   total_cuenta: number;
+  cadi: string | null;
   productos: {
     nombre: string;
     cantidad: number;
@@ -29,9 +31,10 @@ interface CargoDetalle {
 }
 
 export default function CargosSociosView() {
-  const { token, areaId } = useStore();
+  const { token, areaId, user } = useStore();
   const [socios, setSocios] = useState<SocioCargo[]>([]);
   const [filtro, setFiltro] = useState('');
+  const [ordenamiento, setOrdenamiento] = useState<'mayor' | 'menor' | 'az'>('mayor');
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [mensajeExito, setMensajeExito] = useState('');
@@ -43,11 +46,60 @@ export default function CargosSociosView() {
   const [mostrarModalDetalle, setMostrarModalDetalle] = useState(false);
   const [divisionesSeleccionadas, setDivisionesSeleccionadas] = useState<string[]>([]);
 
+  const handleEditarCuenta = async (cuentaId: string) => {
+    setCargando(true);
+    setError('');
+    try {
+      const res = await fetch('/api/admin/cuentas', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const cta = data.find((c: any) => c.id === cuentaId.toString());
+        if (cta) {
+          const itemsCart = cta.productos.map((p: any) => ({
+            id: p.id,
+            detalle_id: p.detalle_id,
+            nombre: p.nombre,
+            precio_venta: p.precio_venta,
+            cantidad: p.cantidad,
+            categoria: p.categoria,
+            notas: p.notas || '',
+            guardado: true,
+            created_at: p.created_at || cta.fecha,
+          }));
+
+          useStore.setState({
+            areaId: cta.area_id,
+            cuentaId: Number(cta.id),
+            cadiId: cta.cadi_id,
+            nombreReferencia: cta.referencia,
+            cart: itemsCart,
+            sociosSeleccionados: cta.socios || [],
+            currentView: 'pos'
+          });
+        } else {
+          throw new Error('No se encontró la información detallada de la cuenta.');
+        }
+      } else {
+        throw new Error(data.error || 'Error al obtener cuentas del sistema');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Error al cargar la cuenta para edición');
+    } finally {
+      setCargando(false);
+      setMostrarModalDetalle(false);
+    }
+  };
+
   const [mostrarModalLiquidar, setMostrarModalLiquidar] = useState(false);
   const [metodoPagoLiquidar, setMetodoPagoLiquidar] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
   const [liquidando, setLiquidando] = useState(false);
   const [liquidarTodoSocio, setLiquidarTodoSocio] = useState<SocioCargo | null>(null);
   const [pagaCon, setPagaCon] = useState('');
+  const [esAbonoParcialModal, setEsAbonoParcialModal] = useState<boolean>(false);
+  const [montoAbonoParcialModal, setMontoAbonoParcialModal] = useState<string>('');
 
   // Estados para Modal de Borrado (Cancelar Adeudos)
   const [mostrarModalBorrar, setMostrarModalBorrar] = useState(false);
@@ -58,6 +110,20 @@ export default function CargosSociosView() {
   useEffect(() => {
     if (token) {
       cargarCargosSocios();
+
+      const socket = io('/', {
+        path: '/socket.io',
+        transports: ['polling', 'websocket'],
+      });
+
+      socket.on('cuenta:actualizar', () => {
+        console.log('Recibida notificación de cuenta/adeudos en CargosSociosView');
+        cargarCargosSocios();
+      });
+
+      return () => {
+        socket.disconnect();
+      };
     }
   }, [token]);
 
@@ -128,6 +194,8 @@ export default function CargosSociosView() {
     setLiquidarTodoSocio(socio);
     setMetodoPagoLiquidar('EFECTIVO');
     setPagaCon('');
+    setEsAbonoParcialModal(false);
+    setMontoAbonoParcialModal('');
     setMostrarModalLiquidar(true);
   };
 
@@ -136,6 +204,8 @@ export default function CargosSociosView() {
     setLiquidarTodoSocio(null);
     setMetodoPagoLiquidar('EFECTIVO');
     setPagaCon('');
+    setEsAbonoParcialModal(false);
+    setMontoAbonoParcialModal('');
     setMostrarModalLiquidar(true);
   };
 
@@ -151,6 +221,16 @@ export default function CargosSociosView() {
     // De lo contrario mandamos las seleccionadas.
     const divisionesIds = liquidarTodoSocio ? [] : divisionesSeleccionadas;
 
+    const payload: any = {
+      metodo_pago: metodoPagoLiquidar,
+      divisionesIds,
+      area_id: areaId,
+    };
+
+    if (esAbonoParcialModal && Number(montoAbonoParcialModal) > 0) {
+      payload.abono_monto = Number(montoAbonoParcialModal);
+    }
+
     try {
       const res = await fetch(`/api/pos/socios/${socioId}/cargos/liquidar`, {
         method: 'POST',
@@ -158,11 +238,7 @@ export default function CargosSociosView() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          metodo_pago: metodoPagoLiquidar,
-          divisionesIds,
-          area_id: areaId,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -173,6 +249,8 @@ export default function CargosSociosView() {
         setMostrarModalDetalle(false);
         setSocioSeleccionado(null);
         setLiquidarTodoSocio(null);
+        setEsAbonoParcialModal(false);
+        setMontoAbonoParcialModal('');
         // Recargar datos principales
         cargarCargosSocios();
         // Mostrar aviso temporal de éxito
@@ -245,11 +323,17 @@ export default function CargosSociosView() {
   };
 
 
-  const sociosFiltrados = socios.filter(
-    (s) =>
-      s.nombre.toLowerCase().includes(filtro.toLowerCase()) ||
-      (s.codigo_socio && s.codigo_socio.toLowerCase().includes(filtro.toLowerCase()))
-  );
+  const sociosFiltrados = socios
+    .filter(
+      (s) =>
+        s.nombre.toLowerCase().includes(filtro.toLowerCase()) ||
+        (s.codigo_socio && s.codigo_socio.toLowerCase().includes(filtro.toLowerCase()))
+    )
+    .sort((a, b) => {
+      if (ordenamiento === 'mayor') return b.saldo_pendiente - a.saldo_pendiente;
+      if (ordenamiento === 'menor') return a.saldo_pendiente - b.saldo_pendiente;
+      return a.nombre.localeCompare(b.nombre);
+    });
 
   const totalSeleccionado = detalles
     .filter((d) => divisionesSeleccionadas.includes(d.division_id))
@@ -301,6 +385,15 @@ export default function CargosSociosView() {
             className="w-full pl-10 input-premium"
           />
         </div>
+        <select
+          value={ordenamiento}
+          onChange={(e) => setOrdenamiento(e.target.value as any)}
+          className="bg-slate-900 border border-slate-800 text-slate-300 text-xs font-bold rounded-xl px-3 py-2.5 outline-none focus:border-campestre-gold transition-all cursor-pointer"
+        >
+          <option value="mayor">Mayor deuda primero</option>
+          <option value="menor">Menor deuda primero</option>
+          <option value="az">A → Z</option>
+        </select>
         <div className="flex items-center space-x-4 w-full md:w-auto justify-end text-right px-1">
           <div>
             <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Deuda Total Socios:</span>
@@ -388,6 +481,19 @@ export default function CargosSociosView() {
                     <Trash2 size={14} />
                   </button>
                   <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLiquidarTodoSocio(socio);
+                      setMetodoPagoLiquidar('EFECTIVO');
+                      setPagaCon(socio.saldo_pendiente.toFixed(2));
+                      setMostrarModalLiquidar(true);
+                    }}
+                    className="p-2 bg-slate-900 border border-slate-800 text-emerald-400 hover:text-white hover:bg-emerald-500/10 rounded-xl hover:border-emerald-500/20 transition-all btn-premium"
+                    title="Cobro rápido en efectivo"
+                  >
+                    <DollarSign size={14} />
+                  </button>
+                  <button
                     onClick={() => abrirLiquidarTodo(socio)}
                     className="px-3 py-2 bg-campestre-gold/15 hover:bg-campestre-gold text-campestre-gold hover:text-slate-950 font-bold rounded-xl text-xs flex items-center space-x-1.5 transition-all border border-campestre-gold/20 hover:border-campestre-gold hover:shadow-lg hover:shadow-campestre-gold/10"
                   >
@@ -470,11 +576,28 @@ export default function CargosSociosView() {
                               </div>
                               
                               <div>
-                                <div className="flex items-center space-x-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                   <span className="text-xs font-bold text-white">{cargo.area}</span>
                                   <span className="text-[9px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded font-mono">
                                     Cuenta #{cargo.cuenta_id}
                                   </span>
+                                  {cargo.cadi && (
+                                    <span className="text-[9px] text-amber-450 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded font-bold">
+                                      División de Cadi: {cargo.cadi}
+                                    </span>
+                                  )}
+                                  {user?.roles?.includes('ADMIN') && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditarCuenta(cargo.cuenta_id);
+                                      }}
+                                      className="text-[9px] font-bold text-yellow-400 bg-yellow-500/10 hover:bg-yellow-500/25 px-2 py-0.5 rounded border border-yellow-500/20 transition-all flex items-center"
+                                    >
+                                      ✏️ Editar Cuenta
+                                    </button>
+                                  )}
                                 </div>
                                 <div className="text-[9px] text-slate-400 flex items-center space-x-1.5 mt-1 font-medium">
                                   <Calendar size={10} />
@@ -629,14 +752,56 @@ export default function CargosSociosView() {
               </button>
             </div>
 
+            <div className="bg-slate-900/60 border border-amber-500/30 rounded-2xl p-3.5 mb-5 space-y-2.5">
+              <label className="flex items-center space-x-2 text-xs font-bold text-amber-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={esAbonoParcialModal}
+                  onChange={(e) => {
+                    setEsAbonoParcialModal(e.target.checked);
+                    if (!e.target.checked) setMontoAbonoParcialModal('');
+                  }}
+                  className="rounded border-slate-700 bg-slate-800 text-amber-400 focus:ring-amber-400 w-4 h-4 cursor-pointer"
+                />
+                <span>¿Realizar Abono Parcial a esta Deuda?</span>
+              </label>
+
+              {esAbonoParcialModal && (
+                <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-300 font-semibold">Monto a Abonar ($):</span>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      value={montoAbonoParcialModal}
+                      onChange={(e) => setMontoAbonoParcialModal(e.target.value)}
+                      className="w-36 bg-slate-800 border border-amber-500/50 rounded-xl px-3 py-1.5 text-xs text-amber-300 font-extrabold text-right outline-none focus:border-amber-400"
+                    />
+                  </div>
+                  {Number(montoAbonoParcialModal) > 0 && (() => {
+                    const totalDeuda = liquidarTodoSocio ? liquidarTodoSocio.saldo_pendiente : totalSeleccionado;
+                    const restante = Math.max(0, totalDeuda - Number(montoAbonoParcialModal));
+                    return (
+                      <div className="text-[10.5px] text-amber-300/90 font-mono text-right">
+                        Deuda restante que conservará el socio: <strong>${restante.toFixed(2)}</strong>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
             {metodoPagoLiquidar === 'EFECTIVO' && (() => {
-              const montoALiquidar = liquidarTodoSocio 
+              const montoTotalBase = liquidarTodoSocio 
                 ? liquidarTodoSocio.saldo_pendiente 
                 : totalSeleccionado;
+              const montoALiquidar = (esAbonoParcialModal && Number(montoAbonoParcialModal) > 0)
+                ? Number(montoAbonoParcialModal)
+                : montoTotalBase;
               return (
                 <div className="space-y-3 mb-6 p-4 bg-slate-900/40 border border-slate-800 rounded-2xl">
                   <div className="flex justify-between items-center">
-                    <label className="text-xs font-semibold text-slate-450">Paga con ($):</label>
+                    <label className="text-xs font-semibold text-slate-455">Paga con ($):</label>
                     <input
                       type="number"
                       placeholder="0.00"
@@ -705,7 +870,12 @@ export default function CargosSociosView() {
                 ) : (
                   <>
                     <Check size={14} />
-                    <span>Confirmar Liquidación</span>
+                    <span>
+                      {esAbonoParcialModal && Number(montoAbonoParcialModal) > 0
+                        ? `Abonar $${Number(montoAbonoParcialModal).toFixed(2)}`
+                        : 'Confirmar Liquidación'
+                      }
+                    </span>
                   </>
                 )}
               </button>
