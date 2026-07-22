@@ -193,7 +193,7 @@ export default function CargosSociosView() {
   const abrirLiquidarTodo = (socio: SocioCargo) => {
     setLiquidarTodoSocio(socio);
     setMetodoPagoLiquidar('EFECTIVO');
-    setPagaCon('');
+    setPagaCon(socio.saldo_pendiente.toFixed(2));
     setEsAbonoParcialModal(false);
     setMontoAbonoParcialModal('');
     setMostrarModalLiquidar(true);
@@ -203,7 +203,7 @@ export default function CargosSociosView() {
     if (divisionesSeleccionadas.length === 0) return;
     setLiquidarTodoSocio(null);
     setMetodoPagoLiquidar('EFECTIVO');
-    setPagaCon('');
+    setPagaCon(totalSeleccionado.toFixed(2));
     setEsAbonoParcialModal(false);
     setMontoAbonoParcialModal('');
     setMostrarModalLiquidar(true);
@@ -758,8 +758,13 @@ export default function CargosSociosView() {
                   type="checkbox"
                   checked={esAbonoParcialModal}
                   onChange={(e) => {
-                    setEsAbonoParcialModal(e.target.checked);
-                    if (!e.target.checked) setMontoAbonoParcialModal('');
+                    const checked = e.target.checked;
+                    setEsAbonoParcialModal(checked);
+                    if (!checked) {
+                      setMontoAbonoParcialModal('');
+                      const totalBase = liquidarTodoSocio ? liquidarTodoSocio.saldo_pendiente : totalSeleccionado;
+                      setPagaCon(totalBase.toFixed(2));
+                    }
                   }}
                   className="rounded border-slate-700 bg-slate-800 text-amber-400 focus:ring-amber-400 w-4 h-4 cursor-pointer"
                 />
@@ -774,7 +779,11 @@ export default function CargosSociosView() {
                       type="number"
                       placeholder="0.00"
                       value={montoAbonoParcialModal}
-                      onChange={(e) => setMontoAbonoParcialModal(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setMontoAbonoParcialModal(val);
+                        if (val) setPagaCon(val);
+                      }}
                       className="w-36 bg-slate-800 border border-amber-500/50 rounded-xl px-3 py-1.5 text-xs text-amber-300 font-extrabold text-right outline-none focus:border-amber-400"
                     />
                   </div>

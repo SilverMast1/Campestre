@@ -258,6 +258,7 @@ export async function listarCargosSocios(req: AuthenticatedRequest, res: Respons
         divisionesCuentas: {
           some: {
             metodo_pago: 'CARGO_SOCIO',
+            estado_pago: 'PENDIENTE',
           },
         },
       },
@@ -265,24 +266,27 @@ export async function listarCargosSocios(req: AuthenticatedRequest, res: Respons
         divisionesCuentas: {
           where: {
             metodo_pago: 'CARGO_SOCIO',
+            estado_pago: 'PENDIENTE',
           },
         },
       },
     });
 
-    const resultado = sociosConCargos.map((socio) => {
-      const saldoPendiente = socio.divisionesCuentas
-        .filter(div => div.estado_pago === 'PENDIENTE')
-        .reduce((sum, div) => sum.plus(new Decimal(div.monto_proporcional)), new Decimal(0));
-      return {
-        id: socio.id,
-        codigo_socio: socio.codigo_socio,
-        nombre: socio.nombre,
-        email: socio.email,
-        telefono: socio.telefono,
-        saldo_pendiente: saldoPendiente.toNumber(),
-      };
-    });
+    const resultado = sociosConCargos
+      .map((socio) => {
+        const saldoPendiente = socio.divisionesCuentas
+          .filter(div => div.estado_pago === 'PENDIENTE')
+          .reduce((sum, div) => sum.plus(new Decimal(div.monto_proporcional)), new Decimal(0));
+        return {
+          id: socio.id,
+          codigo_socio: socio.codigo_socio,
+          nombre: socio.nombre,
+          email: socio.email,
+          telefono: socio.telefono,
+          saldo_pendiente: saldoPendiente.toNumber(),
+        };
+      })
+      .filter((s) => s.saldo_pendiente > 0);
 
     return res.json(resultado);
   } catch (error) {
@@ -304,6 +308,7 @@ export async function obtenerDetalleCargosSocio(req: AuthenticatedRequest, res: 
       where: {
         cliente_id: socioId,
         metodo_pago: 'CARGO_SOCIO',
+        estado_pago: 'PENDIENTE',
       },
       include: {
         cuenta: {
@@ -506,11 +511,14 @@ export async function borrarCargosSocio(req: AuthenticatedRequest, res: Response
     const whereClause: any = {
       cliente_id: socioId,
       metodo_pago: 'CARGO_SOCIO',
+      estado_pago: 'PENDIENTE',
     };
 
     if (Array.isArray(divisionesIds) && divisionesIds.length > 0) {
-      const parsedIds = divisionesIds.map((id) => parseInt(id));
-      whereClause.id = { in: parsedIds };
+      const parsedIds = divisionesIds.map((id) => parseInt(id)).filter((id) => !isNaN(id));
+      if (parsedIds.length > 0) {
+        whereClause.id = { in: parsedIds };
+      }
     }
 
     const result = await prisma.divisionCuenta.updateMany({
