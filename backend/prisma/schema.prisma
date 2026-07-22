@@ -1,5 +1,5 @@
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -96,6 +96,8 @@ model Producto {
   recetas              RecetaIngrediente[]
 
   @@map("productos")
+  @@index([nombre])
+  @@index([activo])
 }
 
 model InventarioArea {
@@ -148,6 +150,7 @@ model Cliente {
   cuentas         Cuenta[]
 
   @@map("clientes")
+  @@index([nombre])
 }
 
 model Cadi {
@@ -162,6 +165,7 @@ model Cadi {
   cuentas      Cuenta[]
 
   @@map("cadis")
+  @@index([nombre])
 }
 
 model AsignacionCadiCliente {
@@ -206,6 +210,11 @@ model Cuenta {
   divisionesCuentas DivisionCuenta[]
 
   @@map("cuentas")
+  @@index([estado])
+  @@index([turno_id])
+  @@index([area_id])
+  @@index([cliente_id])
+  @@index([cadi_id])
 }
 
 model DetalleCuenta {
@@ -225,6 +234,7 @@ model DetalleCuenta {
   producto        Producto @relation(fields: [producto_id], references: [id], onDelete: Restrict)
 
   @@map("detalle_cuentas")
+  @@index([cuenta_id])
 }
 
 model DivisionCuenta {
@@ -245,6 +255,9 @@ model DivisionCuenta {
 
   @@unique([cuenta_id, cliente_id], name: "uq_cuenta_cliente_division")
   @@map("divisiones_cuentas")
+  @@index([estado_pago])
+  @@index([turno_pago_id])
+  @@index([cliente_id])
 }
 
 model Turno {
@@ -266,6 +279,7 @@ model Turno {
   divisiones_pagadas DivisionCuenta[]
 
   @@map("turnos")
+  @@index([activo])
 }
 
 model RetiroCaja {
