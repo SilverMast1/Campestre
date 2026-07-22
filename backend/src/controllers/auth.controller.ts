@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
+// Usar bcrypt nativo (local) o bcryptjs puro (serverless/Netlify)
+let bcrypt: any;
+try { bcrypt = require('bcrypt'); } catch { bcrypt = require('bcryptjs'); }
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../db';
