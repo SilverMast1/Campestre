@@ -8,14 +8,15 @@ import path from 'path';
 // Cargar variables de entorno
 dotenv.config();
 
+import { optimizarSQLite } from './db';
 import { authenticateJWT, requireRoles } from './middlewares/auth.middleware';
 import { idempotency } from './middlewares/idempotency.middleware';
 import { loginInterno, loginCliente, crearClientePorStaff, buscarSociosPublico, listarUsuarios, crearUsuarioInterno, cambiarPasswordUsuario, toggleActivoUsuario, actualizarUsuarioInterno } from './controllers/auth.controller';
-import { listarProductosPorArea, abrirCuenta, guardarConsumos, previsualizarSplit, pagarYCerrarCuenta, ajustarStockArea, obtenerBalanceCaja, listarTodasLasCuentas, eliminarCuenta, resetearDatos, crearProducto, actualizarMetodoPagoCuenta, transferirStock, listarTodosLosProductos, registrarMermaStock, listarMermas, eliminarProducto, fusionarCuentas } from './controllers/pos.controller';
+import { listarProductosPorArea, abrirCuenta, guardarConsumos, previsualizarSplit, pagarYCerrarCuenta, ajustarStockArea, obtenerBalanceCaja, listarTodasLasCuentas, eliminarCuenta, resetearDatos, crearProducto, actualizarMetodoPagoCuenta, transferirStock, listarTodosLosProductos, registrarMermaStock, listarMermas, eliminarProducto, fusionarCuentas, cambiarAreaCuenta } from './controllers/pos.controller';
 import { crearCadi, eliminarCadi, listarCadis, listarCadisActivos, asignarClientesACadi, liberarCadi } from './controllers/cadi.controller';
-import { obtenerPerfilSocio, listarConsumosSocio, regenerarTokenQR, buscarSocioPorQR, buscarSocios, eliminarSocio, listarSocios, listarCargosSocios, obtenerDetalleCargosSocio, liquidarCargosSocio, borrarCargosSocio, obtenerCuentaActivaSocio, actualizarSocio } from './controllers/cliente.controller';
+import { obtenerPerfilSocio, listarConsumosSocio, regenerarTokenQR, buscarSocioPorQR, buscarSocios, eliminarSocio, listarSocios, listarCargosSocios, obtenerDetalleCargosSocio, liquidarCargosSocio, borrarCargosSocio, obtenerCuentaActivaSocio, actualizarSocio, obtenerSiguienteCodigoSocio } from './controllers/cliente.controller';
 import { abrirTurno, obtenerTurnoActivo, cerrarTurno, registrarRetiroCaja, registrarIngresoCaja } from './controllers/turno.controller';
-import { obtenerReporteDiario, obtenerReporteCortes } from './controllers/reporte.controller';
+import { obtenerReporteDiario, obtenerReporteCortes, obtenerVentasPorArea } from './controllers/reporte.controller';
 import { listarInsumos, crearInsumo, actualizarInsumo, eliminarInsumo, guardarReceta, obtenerReceta } from './controllers/insumo.controller';
 import { registrarGastoIngreso, obtenerReporteSemanalGastos, eliminarGastoIngreso } from './controllers/gastos.controller';
 import { listarBackups, crearBackup, restaurarBackup } from './controllers/backup.controller';
@@ -43,8 +44,15 @@ const isOriginAllowed = (origin: string): boolean => {
       hostname.startsWith('10.') ||
       hostname.startsWith('172.')
     ) return true;
-    // Permitir túneles de VS Code
-    if (hostname.endsWith('.github.dev') || hostname.endsWith('.app.github.dev')) return true;
+    // Permitir túneles de VS Code o localtunnel
+    if (
+      hostname.endsWith('.github.dev') ||
+      hostname.endsWith('.app.github.dev') ||
+      hostname.endsWith('.loca.lt') ||
+      hostname.endsWith('.netlify.app') ||
+      hostname.endsWith('.onrender.com') ||
+      hostname.endsWith('.vercel.app')
+    ) return true;
   } catch (err) {
     // Si no es una URL válida
   }
@@ -100,6 +108,7 @@ app.put('/api/pos/cuentas/:cuentaId/consumos', authenticateJWT, requireRoles(['A
 app.get('/api/pos/cuentas/:cuentaId/split-preview', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), previsualizarSplit);
 app.post('/api/pos/cuentas/:cuentaId/pagar', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), pagarYCerrarCuenta);
 app.put('/api/pos/cuentas/:cuentaId/metodo-pago', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), actualizarMetodoPagoCuenta);
+app.put('/api/pos/cuentas/:cuentaId/cambiar-area', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), cambiarAreaCuenta);
 
 // 2.5 Gestión de Almacenamiento (Solo Administradores)
 app.put('/api/admin/inventario', authenticateJWT, requireRoles(['ADMIN']), ajustarStockArea);
@@ -144,6 +153,7 @@ app.post('/api/admin/turno/ingreso', authenticateJWT, requireRoles(['ADMIN']), r
 // 2.7 Reportes (Solo Administradores)
 app.get('/api/admin/reportes/diario', authenticateJWT, requireRoles(['ADMIN']), obtenerReporteDiario);
 app.get('/api/admin/reportes/cortes', authenticateJWT, requireRoles(['ADMIN']), obtenerReporteCortes);
+app.get('/api/admin/reportes/ventas-por-area', authenticateJWT, requireRoles(['ADMIN']), obtenerVentasPorArea);
 app.post('/api/admin/gastos-ingresos', authenticateJWT, requireRoles(['ADMIN']), registrarGastoIngreso);
 app.get('/api/admin/gastos-ingresos/semanal', authenticateJWT, requireRoles(['ADMIN']), obtenerReporteSemanalGastos);
 app.delete('/api/admin/gastos-ingresos/:id', authenticateJWT, requireRoles(['ADMIN']), eliminarGastoIngreso);
@@ -164,6 +174,7 @@ app.post('/api/socio/qr-token', authenticateJWT, requireRoles(['CLIENTE']), rege
 app.post('/api/socio/buscar-qr', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), buscarSocioPorQR);
 app.get('/api/socio/buscar', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), buscarSocios);
 app.get('/api/socios', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), listarSocios);
+app.get('/api/socios/siguiente-codigo', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), obtenerSiguienteCodigoSocio);
 app.put('/api/socios/:socioId', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), actualizarSocio);
 app.delete('/api/socios/:socioId', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR']), eliminarSocio);
 
@@ -224,6 +235,15 @@ io.on('connection', (socket) => {
 app.set('io', io);
 
 // Arrancar servidor
-server.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Servidor backend corriendo en el puerto ${PORT}`);
-});
+async function startServer() {
+  await optimizarSQLite();
+  server.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Servidor backend corriendo en el puerto ${PORT}`);
+  });
+}
+
+if (process.env.NODE_ENV !== 'test' && !process.env.NETLIFY) {
+  startServer();
+}
+
+export { app };
