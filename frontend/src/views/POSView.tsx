@@ -1,8 +1,42 @@
 import { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
 import { TicketVenta } from '../components/TicketVenta';
-import { ShoppingCart, User, Users, Search, Plus, Minus, Trash2, CreditCard, Check, Sparkles, RefreshCw, Clock, X, Merge } from 'lucide-react';
+import { ShoppingCart, User, Users, Search, Plus, Minus, Trash2, CreditCard, Check, Sparkles, RefreshCw, Clock, X, Merge, Move } from 'lucide-react';
 import { io } from 'socket.io-client';
+import apiClient from '../api/apiClient';
+import { addToOfflineQueue, syncOfflineQueue, getOfflineQueue } from '../api/offlineQueue';
+
+// Wrapper de fetch compatible usando Axios
+const apiFetch = async (url: string, options: any = {}) => {
+  const method = options.method || 'GET';
+  const headers = options.headers || {};
+  let data = options.body;
+  if (data && typeof data === 'string') {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {}
+  }
+
+  // Limpiar headers redundantes
+  if (headers['Authorization']) delete headers['Authorization'];
+  if (headers['Content-Type']) delete headers['Content-Type'];
+
+  const response = await apiClient({
+    url,
+    method,
+    headers,
+    data,
+  });
+
+  return {
+    ok: response.status >= 200 && response.status < 300,
+    status: response.status,
+    json: async () => response.data,
+    text: async () => typeof response.data === 'string' ? response.data : JSON.stringify(response.data),
+  };
+};
+
+const fetch = apiFetch;
 
 export default function POSView() {
   const {
@@ -23,24 +57,96 @@ export default function POSView() {
     setNombreReferencia,
     cuentaId,
     setCuentaId,
+    user,
   } = useStore();
 
   const socketRef = useRef<any>(null);
   const inputMezcladorRef = useRef<HTMLInputElement>(null);
+  const searchDebounceRef = useRef<any>(null);
 
   const [cadis, setCadis] = useState<any[]>([]);
   const [animacionesCarrito, setAnimacionesCarrito] = useState<{ id: number; x: number; y: number }[]>([]);
   const [sociosBusqueda, setSociosBusqueda] = useState<any[]>([]);
   const [busquedaTexto, setBusquedaTexto] = useState('');
-  const [sociosSeleccionadosCadi, setSociosSeleccionadosCadi] = useState<any[]>([]);
+  const [sociosSeleccionadosCadi, setSociosSeleccionadosCadi] = useState<any[]>(() => {
+    return useStore.getState().sociosSeleccionados || [];
+  });
+
+  useEffect(() => {
+    useStore.setState({ sociosSeleccionados: sociosSeleccionadosCadi });
+  }, [sociosSeleccionadosCadi]);
   const [mostrarBuscadorSocios, setMostrarBuscadorSocios] = useState(false);
   const [cargando, setCargando] = useState(false);
 
   // Estados de Cobro
   const [mostrarModalCobro, setMostrarModalCobro] = useState(false);
   const [splitPreview, setSplitPreview] = useState<any>(null);
+  
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [offlineQueueCount, setOfflineQueueCount] = useState(getOfflineQueue().length);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncOfflineQueue((msg) => {
+        console.log(msg);
+        setOfflineQueueCount(0);
+        cargarCuentasPendientes();
+      });
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    if (navigator.onLine) {
+      syncOfflineQueue(() => {
+        setOfflineQueueCount(0);
+        cargarCuentasPendientes();
+      });
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const [metodosPago, setMetodosPago] = useState<{ [clienteId: number]: string }>({});
   const [pagoExitoso, setPagoExitoso] = useState(false);
+  const [countdownPrint, setCountdownPrint] = useState(5);
+  const [cargosSociosPanel, setCargosSociosPanel] = useState<{ [clienteId: number]: { total: number; divisiones: any[] } }>({});
+  const [liquidarCargosPanel, setLiquidarCargosPanel] = useState<{ [clienteId: number]: boolean }>({});
+  const [detenerTimer, setDetenerTimer] = useState(false);
+
+
+  useEffect(() => {
+    let timer: any;
+    let interval: any;
+    if (pagoExitoso && !detenerTimer) {
+      setCountdownPrint(5);
+      interval = setInterval(() => {
+        setCountdownPrint((prev) => (prev > 1 ? prev - 1 : 1));
+      }, 1000);
+
+      timer = setTimeout(() => {
+        setPagoExitoso(false);
+        setMostrarModalCobro(false);
+        setSplitPreview(null);
+        clearCart();
+        if (areaId) cargarProductos(areaId);
+        cargarCadis();
+        cargarCuentasPendientes();
+      }, 5000);
+    }
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [pagoExitoso, detenerTimer]);
+
   const [errorMsg, setErrorMsg] = useState('');
   const [metodoPagoDirecto, setMetodoPagoDirecto] = useState<string>('EFECTIVO');
   const [montoRecibido, setMontoRecibido] = useState<string>('');
@@ -50,6 +156,17 @@ export default function POSView() {
   const [metodoPagoAbono, setMetodoPagoAbono] = useState<string>('EFECTIVO');
   const [montoEfectivoMixtoSocio, setMontoEfectivoMixtoSocio] = useState<{ [clienteId: number]: string }>({});
   const [montoTarjetaMixtoSocio, setMontoTarjetaMixtoSocio] = useState<{ [clienteId: number]: string }>({});
+  const [montoRecibidoSocio, setMontoRecibidoSocio] = useState<{ [clienteId: number]: string }>({});
+
+  useEffect(() => {
+    if (!mostrarModalCobro) {
+      setAbonoMonto('');
+      setMetodoPagoAbono('EFECTIVO');
+      setMontoEfectivoMixto('');
+      setMontoTarjetaMixto('');
+      setDetenerTimer(false);
+    }
+  }, [mostrarModalCobro]);
 
   // Simulador de Escaneo QR
   const [simularQrToken, setSimularQrToken] = useState('');
@@ -80,11 +197,59 @@ export default function POSView() {
   const [mostrarModalEditarPago, setMostrarModalEditarPago] = useState(false);
   const [nuevosMetodosPago, setNuevosMetodosPago] = useState<{ [key: string]: string }>({});
   const [guardandoMetodoPago, setGuardandoMetodoPago] = useState(false);
+  const [descuentoEmpleado, setDescuentoEmpleado] = useState(false);
+
+  const [datosUltimoTicket, setDatosUltimoTicket] = useState<any>(null);
+
+  useEffect(() => {
+    if (cart.length > 0 && !pagoExitoso) {
+      const adeudosSeleccionados = Object.keys(liquidarCargosPanel).reduce((sum, key) => {
+        const cid = Number(key);
+        return sum + (liquidarCargosPanel[cid] ? (cargosSociosPanel[cid]?.total || 0) : 0);
+      }, 0);
+
+      const listaAdeudosDetalle: any[] = [];
+      Object.keys(liquidarCargosPanel).forEach(key => {
+        const cid = Number(key);
+        if (liquidarCargosPanel[cid] && cargosSociosPanel[cid]?.divisiones) {
+          cargosSociosPanel[cid].divisiones.forEach((div: any) => {
+            listaAdeudosDetalle.push({
+              area: div.area,
+              fecha: div.fecha,
+              monto: div.monto,
+              cuenta_id: div.cuenta_id,
+              productos: div.productos
+            });
+          });
+        }
+      });
+
+      setDatosUltimoTicket({
+        id: cuentaId || 'BORRADOR',
+        descuento: descuentoEmpleado ? (cart.reduce((acc, c) => acc + (c.precio_venta * c.cantidad), 0) * 0.3) : 0,
+        propina: 0,
+        metodo_pago: metodoPagoDirecto || 'EFECTIVO',
+        adeudosPagados: adeudosSeleccionados,
+        adeudosDetalle: listaAdeudosDetalle,
+        detalleCuentas: cart.map(c => ({
+          id: c.id,
+          cantidad: c.cantidad,
+          precio_unitario: c.precio_unitario !== undefined ? c.precio_unitario : c.precio_venta,
+          producto: c,
+          notas: c.notas || ''
+        })),
+        mesa: nombreReferencia,
+        socioNombre: sociosSeleccionadosCadi.map(s => s.nombre).join(', ')
+      });
+    }
+  }, [cart, cuentaId, nombreReferencia, sociosSeleccionadosCadi, descuentoEmpleado, metodoPagoDirecto, pagoExitoso, liquidarCargosPanel, cargosSociosPanel]);
 
   // Estados para deudas y liquidación de socios en modal de cobro
   const [deudasSocios, setDeudasSocios] = useState<{ [clienteId: number]: { total: number; divisiones: any[] } }>({});
   const [liquidarDeudaSocio, setLiquidarDeudaSocio] = useState<{ [clienteId: number]: boolean }>({});
   const [metodosPagoLiquidacion, setMetodosPagoLiquidacion] = useState<{ [clienteId: number]: string }>({});
+
+
 
   // Estados para creación rápida de Socios y Cadis en POS (Vendedores)
   const [mostrarConfirmacionLimpiar, setMostrarConfirmacionLimpiar] = useState(false);
@@ -94,6 +259,8 @@ export default function POSView() {
   const [mostrarModalFusion, setMostrarModalFusion] = useState(false);
   const [cuentaOrigenFusionId, setCuentaOrigenFusionId] = useState('');
   const [fusionando, setFusionando] = useState(false);
+  const [mostrarModalMoverArea, setMostrarModalMoverArea] = useState(false);
+  const [moviendoArea, setMoviendoArea] = useState(false);
   const [mostrarModalIniciarRonda, setMostrarModalIniciarRonda] = useState(false);
   const [mostrarFormCrearCadiInterno, setMostrarFormCrearCadiInterno] = useState(false);
 
@@ -102,11 +269,43 @@ export default function POSView() {
   const [nombreSocioNuevo, setNombreSocioNuevo] = useState('');
   const [emailSocioNuevo, setEmailSocioNuevo] = useState('');
   const [telefonoSocioNuevo, setTelefonoSocioNuevo] = useState('');
+  const [tipoSocioNuevo, setTipoSocioNuevo] = useState<'SOCIO' | 'EMPLEADO'>('SOCIO');
+
+  const fetchSiguienteCodigo = async (tipo: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/socios/siguiente-codigo?tipo=${tipo}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.siguiente_codigo) {
+        setCodigoSocioNuevo(data.siguiente_codigo);
+      }
+    } catch (err) {
+      console.error('Error al obtener siguiente código:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (token && mostrarModalCrearSocio) {
+      fetchSiguienteCodigo(tipoSocioNuevo);
+    }
+  }, [token, tipoSocioNuevo, mostrarModalCrearSocio]);
 
   // Inputs Cadi Nuevo (dentro de Iniciar Ronda)
   const [numeroCadiNuevo, setNumeroCadiNuevo] = useState('');
   const [nombreCadiNuevo, setNombreCadiNuevo] = useState('');
   const [telefonoCadiNuevo, setTelefonoCadiNuevo] = useState('');
+
+  const handleAgregarAlCarrito = (producto: any) => {
+    addToCart(producto);
+    setTimeout(() => {
+      const element = document.getElementById(`cart-item-${producto.id}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 100);
+  };
 
   // Estados Asignación / Iniciar Ronda
   const [todosLosCadis, setTodosLosCadis] = useState<any[]>([]);
@@ -138,7 +337,7 @@ export default function POSView() {
   useEffect(() => {
     if (mostrarModalCobro && splitPreview) {
       setDeudasSocios({});
-      setLiquidarDeudaSocio({});
+      setLiquidarDeudaSocio({ ...liquidarCargosPanel });
       setMetodosPagoLiquidacion({});
 
       if (splitPreview.divisiones && splitPreview.divisiones.length > 0) {
@@ -277,40 +476,118 @@ export default function POSView() {
     }
   }, [sociosSeleccionadosCadi]);
 
+  // Cargar deudas de los socios seleccionados en el panel lateral (carrito)
+  useEffect(() => {
+    if (!token) return;
+    if (sociosSeleccionadosCadi && sociosSeleccionadosCadi.length > 0) {
+      // Cargar cargos pendientes para cada socio seleccionado
+      sociosSeleccionadosCadi.forEach(async (s: any) => {
+        try {
+          const res = await fetch(`/api/pos/socios/${s.id}/cargos/detalle`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (res.ok && Array.isArray(data) && data.length > 0) {
+            const totalAdeudo = data.reduce((sum: number, item: any) => sum + Number(item.monto), 0);
+            setCargosSociosPanel(prev => ({
+              ...prev,
+              [s.id]: {
+                total: totalAdeudo,
+                divisiones: data,
+              }
+            }));
+          } else {
+            setCargosSociosPanel(prev => {
+              const copy = { ...prev };
+              delete copy[s.id];
+              return copy;
+            });
+          }
+        } catch (error) {
+          console.error(`Error al cargar cargos del socio ${s.id} para el panel:`, error);
+        }
+      });
+    } else {
+      setCargosSociosPanel({});
+      setLiquidarCargosPanel({});
+    }
+  }, [sociosSeleccionadosCadi, token]);
+
+  // Limpiar estados de deudas si el carrito se vacía
+  useEffect(() => {
+    if (cart.length === 0) {
+      setCargosSociosPanel({});
+      setLiquidarCargosPanel({});
+    }
+  }, [cart]);
+
   const cargarProductos = async (idArea: number) => {
+    const cacheKey = `campestre_productos_${idArea}`;
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setProductos(JSON.parse(cached));
+      return;
+    }
     try {
       const res = await fetch(`/api/pos/productos/${idArea}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) setProductos(data);
+      if (res.ok) {
+        setProductos(data);
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+      }
     } catch (error) {
       console.error('Error al cargar productos:', error);
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setProductos(JSON.parse(cached));
     }
   };
 
   const cargarCadis = async () => {
+    const cacheKey = 'campestre_cadis_activos';
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setCadis(JSON.parse(cached));
+      return;
+    }
     try {
       const res = await fetch('/api/cadis/activos', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) setCadis(data);
+      if (res.ok) {
+        setCadis(data);
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+      }
     } catch (error) {
       console.error('Error al cargar cadis:', error);
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setCadis(JSON.parse(cached));
     }
   };
 
   const cargarTodosLosCadis = async () => {
     if (!token) return;
+    const cacheKey = 'campestre_cadis_todos';
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setTodosLosCadis(JSON.parse(cached));
+      return;
+    }
     try {
       const res = await fetch('/api/cadis', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) setTodosLosCadis(data);
+      if (res.ok) {
+        setTodosLosCadis(data);
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+      }
     } catch (error) {
       console.error('Error al cargar todos los cadis:', error);
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setTodosLosCadis(JSON.parse(cached));
     }
   };
 
@@ -473,6 +750,13 @@ export default function POSView() {
   const cargarCuentasPendientes = async () => {
     if (!token) return;
     setCargandoCuentas(true);
+    const cacheKey = 'campestre_cuentas_pendientes';
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setCuentasPendientes(JSON.parse(cached));
+      setCargandoCuentas(false);
+      return;
+    }
     try {
       const res = await fetch('/api/admin/cuentas?solo_turno_activo=true', {
         headers: { Authorization: `Bearer ${token}` },
@@ -481,9 +765,12 @@ export default function POSView() {
       if (res.ok) {
         const abiertas = data.filter((c: any) => c.estado === 'ABIERTA');
         setCuentasPendientes(abiertas);
+        localStorage.setItem(cacheKey, JSON.stringify(abiertas));
       }
     } catch (error) {
       console.error('Error al cargar cuentas abiertas:', error);
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) setCuentasPendientes(JSON.parse(cached));
     } finally {
       setCargandoCuentas(false);
     }
@@ -594,7 +881,6 @@ export default function POSView() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al actualizar método de pago');
-
       setMostrarModalEditarPago(false);
       setCuentaParaEditarPago(null);
       cargarCuentasPagadas();
@@ -608,16 +894,51 @@ export default function POSView() {
   const handleCancelarEdicion = () => {
     clearCart();
     setSociosSeleccionadosCadi([]);
+    setDescuentoEmpleado(false);
+  };
+
+  const formatFechaHoraItem = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+
+    const ahora = new Date();
+    const diffMs = ahora.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHoras = Math.floor(diffMins / 60);
+
+    const diaSemanaRaw = d.toLocaleDateString('es-MX', { weekday: 'long' });
+    const diaSemana = diaSemanaRaw.charAt(0).toUpperCase() + diaSemanaRaw.slice(1);
+
+    let relativo = '';
+    if (diffMins < 1) relativo = 'Hace un momento';
+    else if (diffMins < 60) relativo = `Hace ${diffMins} min`;
+    else if (diffHoras < 24) relativo = `Hace ${diffHoras} h`;
+    else relativo = d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' });
+
+    const horaStr = d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
+    return `${diaSemana} ${horaStr} (${relativo})`;
+  };
+
+  const handleLimpiarConsumosAntiguos = () => {
+    if (window.confirm('¿Estás seguro de eliminar todos los consumos anteriormente guardados de esta cuenta?')) {
+      const itemsNuevos = cart.filter(item => !item.guardado);
+      useStore.setState({ cart: itemsNuevos });
+    }
   };
 
   const handleSeleccionarCuenta = (cuenta: any) => {
+    setDescuentoEmpleado(Number(cuenta.descuento || 0) > 0);
     const itemsCart = cuenta.productos.map((p: any) => ({
       id: p.id,
+      detalle_id: p.detalle_id,
       nombre: p.nombre,
       precio_venta: p.precio_venta,
       cantidad: p.cantidad,
       categoria: p.categoria,
       notas: p.notas || '',
+      guardado: true,
+      created_at: p.created_at || cuenta.fecha,
     }));
 
     useStore.setState({
@@ -629,6 +950,30 @@ export default function POSView() {
     });
 
     setSociosSeleccionadosCadi(cuenta.socios || []);
+  };
+
+  const handleCargarCuentaEspecifica = async (targetCuentaId: string | number) => {
+    setCargando(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/admin/cuentas', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) {
+        const cta = data.find((c: any) => String(c.id) === String(targetCuentaId));
+        if (cta) {
+          handleSeleccionarCuenta(cta);
+        } else {
+          setErrorMsg('No se encontró la cuenta seleccionada en el sistema.');
+        }
+      }
+    } catch (err: any) {
+      console.error('Error al cargar la cuenta específica:', err);
+      setErrorMsg('Error al obtener información de la cuenta.');
+    } finally {
+      setCargando(false);
+    }
   };
 
   const handlePagarCuentaDirecto = async (cuenta: any) => {
@@ -682,9 +1027,10 @@ export default function POSView() {
         setSplitPreview(finalSplit);
         const metodosIniciales: { [key: number]: string } = {};
         finalSplit.divisiones.forEach((d: any) => {
-          metodosIniciales[d.cliente_id] = 'CARGO_SOCIO';
+          metodosIniciales[d.cliente_id] = 'EFECTIVO';
         });
         setMetodosPago(metodosIniciales);
+        setMontoRecibidoSocio({});
         setMetodoPagoDirecto('EFECTIVO');
         setMostrarModalCobro(true);
       } else {
@@ -702,9 +1048,11 @@ export default function POSView() {
     setCargando(true);
     setErrorMsg('');
 
+    let idCuenta = cuentaId;
+    let refName = '';
+
     try {
-      let idCuenta = cuentaId;
-      const refName = (() => {
+      refName = (() => {
         if (sociosSeleccionadosCadi.length > 0) {
           const esDefaultOMesa = !nombreReferencia || /^Mesa(\s+\d+)?$/i.test(nombreReferencia.trim());
           if (esDefaultOMesa) {
@@ -713,6 +1061,108 @@ export default function POSView() {
         }
         return nombreReferencia || `Mesa ${Math.floor(Math.random() * 20) + 1}`;
       })();
+
+      // Lógica offline
+      if (!navigator.onLine) {
+        let tempId = idCuenta;
+        if (!tempId) {
+          tempId = `temp-${Date.now()}` as any;
+          setCuentaId(tempId);
+          
+          addToOfflineQueue({
+            url: '/api/pos/cuentas/abrir',
+            method: 'POST',
+            tempCuentaId: String(tempId),
+            data: {
+              area_id: areaId,
+              cadi_id: cadiId,
+              nombre_referencia: refName,
+              cliente_id: sociosSeleccionadosCadi[0]?.id || null,
+            }
+          });
+        }
+
+        const payloadProductos = cart.map(item => ({
+          producto_id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_unitario !== undefined ? item.precio_unitario : item.precio_venta,
+          notas: item.notas || null,
+          created_at: item.created_at || null,
+        }));
+
+        addToOfflineQueue({
+          url: `/api/pos/cuentas/${tempId}/consumos`,
+          method: 'PUT',
+          tempCuentaId: String(tempId).startsWith('temp-') ? String(tempId) : undefined,
+          data: {
+            productos: payloadProductos,
+            cadi_id: cadiId,
+            nombre_referencia: refName,
+            cliente_id: sociosSeleccionadosCadi[0]?.id || null,
+            descuento_empleado: descuentoEmpleado,
+            dejar_abierta: true,
+          }
+        });
+
+        // Formar el objeto de la cuenta mockeada
+        const mockProductos = cart.map(item => ({
+          id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
+          producto_id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
+          nombre: item.nombre,
+          precio_venta: item.precio_venta,
+          cantidad: item.cantidad,
+          categoria: item.categoria || '',
+          notas: item.notas || '',
+        }));
+
+        const mockCuenta = {
+          id: tempId,
+          area_id: areaId,
+          cadi_id: cadiId,
+          referencia: refName,
+          estado: 'ABIERTA',
+          descuento: descuentoEmpleado ? 10 : 0,
+          socios: sociosSeleccionadosCadi,
+          productos: mockProductos,
+          total: cart.reduce((acc, c) => acc + (c.precio_venta * c.cantidad), 0),
+          created_at: new Date().toISOString(),
+          isOffline: true,
+        };
+
+        setCuentasPendientes(prev => {
+          const index = prev.findIndex(c => String(c.id) === String(tempId));
+          let updatedList;
+          if (index > -1) {
+            const existingCta = prev[index];
+            const combinedProductos = [...existingCta.productos];
+            mockProductos.forEach(newP => {
+              const pIndex = combinedProductos.findIndex(p => p.id === newP.id);
+              if (pIndex > -1) {
+                combinedProductos[pIndex].cantidad += newP.cantidad;
+              } else {
+                combinedProductos.push(newP);
+              }
+            });
+            const updatedCta = {
+              ...existingCta,
+              productos: combinedProductos,
+              total: combinedProductos.reduce((acc, p) => acc + (p.precio_venta * p.cantidad), 0),
+            };
+            updatedList = prev.map((c, i) => i === index ? updatedCta : c);
+          } else {
+            updatedList = [mockCuenta, ...prev];
+          }
+          localStorage.setItem('campestre_cuentas_pendientes', JSON.stringify(updatedList));
+          return updatedList;
+        });
+
+        setOfflineQueueCount(getOfflineQueue().length);
+        clearCart();
+        setSociosSeleccionadosCadi([]);
+        alert('Consumos guardados de forma local (offline). Se sincronizarán al recuperar la conexión.');
+        setCargando(false);
+        return;
+      }
 
       // Actualizar el estado local para reflejar el nombre final
       setNombreReferencia(refName);
@@ -756,6 +1206,8 @@ export default function POSView() {
           cadi_id: cadiId,
           nombre_referencia: refName,
           cliente_id: sociosSeleccionadosCadi[0]?.id || null,
+          descuento_empleado: descuentoEmpleado,
+          dejar_abierta: true,
         }),
       });
 
@@ -771,13 +1223,106 @@ export default function POSView() {
       cargarCuentasPendientes();
       if (areaId) cargarProductos(areaId);
     } catch (error: any) {
-      setErrorMsg(error.message);
+      console.warn("Fallo de red o túnel inactivo. Guardando en cola local offline.", error);
+      let tempId = idCuenta || `temp-${Date.now()}`;
+      if (!idCuenta) setCuentaId(tempId as any);
+
+      const payloadProductos = cart.map(item => ({
+        producto_id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
+        cantidad: item.cantidad,
+        precio_unitario: item.precio_unitario !== undefined ? item.precio_unitario : item.precio_venta,
+        notas: item.notas || null,
+      }));
+
+      if (!idCuenta) {
+        addToOfflineQueue({
+          url: '/api/pos/cuentas/abrir',
+          method: 'POST',
+          tempCuentaId: String(tempId),
+          data: {
+            area_id: areaId,
+            cadi_id: cadiId,
+            nombre_referencia: refName,
+            cliente_id: sociosSeleccionadosCadi[0]?.id || null,
+          }
+        });
+      }
+
+      addToOfflineQueue({
+        url: `/api/pos/cuentas/${tempId}/consumos`,
+        method: 'PUT',
+        tempCuentaId: String(tempId).startsWith('temp-') ? String(tempId) : undefined,
+        data: {
+          productos: payloadProductos,
+          cadi_id: cadiId,
+          nombre_referencia: refName,
+          cliente_id: sociosSeleccionadosCadi[0]?.id || null,
+          descuento_empleado: descuentoEmpleado,
+          dejar_abierta: true,
+        }
+      });
+
+      const mockProductos = cart.map(item => ({
+        id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
+        producto_id: typeof item.id === 'string' ? parseInt(item.id.split('-')[0]) : item.id,
+        nombre: item.nombre,
+        precio_venta: item.precio_venta,
+        cantidad: item.cantidad,
+        categoria: item.categoria || '',
+        notas: item.notas || '',
+      }));
+
+      const mockCuenta = {
+        id: tempId,
+        area_id: areaId,
+        cadi_id: cadiId,
+        referencia: refName,
+        estado: 'ABIERTA',
+        descuento: descuentoEmpleado ? 10 : 0,
+        socios: sociosSeleccionadosCadi,
+        productos: mockProductos,
+        total: cart.reduce((acc, c) => acc + (c.precio_venta * c.cantidad), 0),
+        created_at: new Date().toISOString(),
+        isOffline: true,
+      };
+
+      setCuentasPendientes(prev => {
+        const index = prev.findIndex(c => String(c.id) === String(tempId));
+        let updatedList;
+        if (index > -1) {
+          const existingCta = prev[index];
+          const combinedProductos = [...existingCta.productos];
+          mockProductos.forEach(newP => {
+            const pIndex = combinedProductos.findIndex(p => p.id === newP.id);
+            if (pIndex > -1) {
+              combinedProductos[pIndex].cantidad += newP.cantidad;
+            } else {
+              combinedProductos.push(newP);
+            }
+          });
+          const updatedCta = {
+            ...existingCta,
+            productos: combinedProductos,
+            total: combinedProductos.reduce((acc, p) => acc + (p.precio_venta * p.cantidad), 0),
+          };
+          updatedList = prev.map((c, i) => i === index ? updatedCta : c);
+        } else {
+          updatedList = [mockCuenta, ...prev];
+        }
+        localStorage.setItem('campestre_cuentas_pendientes', JSON.stringify(updatedList));
+        return updatedList;
+      });
+
+      setOfflineQueueCount(getOfflineQueue().length);
+      clearCart();
+      setSociosSeleccionadosCadi([]);
+      alert('Conexión con el servidor no disponible (túnel inactivo). Comanda guardada de forma local (offline). Se sincronizará automáticamente cuando vuelva la conexión.');
     } finally {
       setCargando(false);
     }
   };
 
-  // Buscar socios por texto (Autocompletar)
+  // Buscar socios por texto (Autocompletar) con Debounce de 150ms
   const buscarSocios = async (texto: string) => {
     setBusquedaTexto(texto);
     if (texto.length < 2) {
@@ -785,15 +1330,21 @@ export default function POSView() {
       return;
     }
 
-    try {
-      const res = await fetch(`/api/socio/buscar?q=${encodeURIComponent(texto)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.ok) setSociosBusqueda(data);
-    } catch (error) {
-      console.error('Error al buscar socios:', error);
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
     }
+
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/socio/buscar?q=${encodeURIComponent(texto)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok) setSociosBusqueda(data);
+      } catch (error) {
+        console.error('Error al buscar socios:', error);
+      }
+    }, 150);
   };
 
   // Simular escaneo de QR
@@ -874,6 +1425,37 @@ export default function POSView() {
     }
   };
 
+  const handleMoverArea = async (destinoAreaId: number) => {
+    if (!cuentaId) return;
+    setMoviendoArea(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch(`/api/pos/cuentas/${cuentaId}/cambiar-area`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ area_id: destinoAreaId })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setMostrarModalMoverArea(false);
+        clearCart();
+        setCuentaId(null);
+        await cargarCuentasPendientes();
+      } else {
+        throw new Error(data.error || 'Error al mover la cuenta de área');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'Error de red al mover la cuenta de área');
+    } finally {
+      setMoviendoArea(false);
+    }
+  };
+
   const handleGuardarCuenta = async () => {
     if (cart.length === 0) return;
     setCargando(true);
@@ -935,6 +1517,7 @@ export default function POSView() {
           cadi_id: cadiId,
           nombre_referencia: refName,
           cliente_id: sociosSeleccionadosCadi[0]?.id || null,
+          descuento_empleado: descuentoEmpleado,
         }),
       });
 
@@ -986,9 +1569,10 @@ export default function POSView() {
         // Inicializar métodos de pago por cliente
         const metodosIniciales: { [key: number]: string } = {};
         finalSplit.divisiones.forEach((d: any) => {
-          metodosIniciales[d.cliente_id] = 'CARGO_SOCIO'; // Por defecto cargo a socio
+          metodosIniciales[d.cliente_id] = 'EFECTIVO'; // Por defecto cargo a socio
         });
         setMetodosPago(metodosIniciales);
+        setMontoRecibidoSocio({});
         setMetodoPagoDirecto('EFECTIVO');
         setMostrarModalCobro(true);
       } else {
@@ -1073,16 +1657,16 @@ export default function POSView() {
         }
       }
 
+      setDatosUltimoTicket((prev: any) => {
+        if (prev) {
+          return {
+            ...prev,
+            adeudosPagados: totalAdeudosACobrar
+          };
+        }
+        return prev;
+      });
       setPagoExitoso(true);
-      setTimeout(() => {
-        setPagoExitoso(false);
-        setMostrarModalCobro(false);
-        setSplitPreview(null);
-        clearCart();
-        if (areaId) cargarProductos(areaId);
-        cargarCadis();
-        cargarCuentasPendientes();
-      }, 2000);
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
@@ -1118,7 +1702,7 @@ export default function POSView() {
         }
       } else {
         const payloadPagos = splitPreview.divisiones.map((d: any) => {
-          const met = metodosPago[d.cliente_id] || 'CARGO_SOCIO';
+          const met = metodosPago[d.cliente_id] || 'EFECTIVO';
           const pObj: any = {
             cliente_id: d.cliente_id,
             monto: d.monto,
@@ -1150,47 +1734,51 @@ export default function POSView() {
 
       // Liquidar deudas seleccionadas
       for (const d of splitPreview.divisiones) {
-        if (liquidarDeudaSocio[d.cliente_id] && deudasSocios[d.cliente_id]) {
-          const divisionesIds = deudasSocios[d.cliente_id].divisiones.map((x: any) => x.division_id);
+        const clienteId = d.cliente_id;
+        if (liquidarCargosPanel[clienteId] && cargosSociosPanel[clienteId]) {
+          const divisiones = cargosSociosPanel[clienteId].divisiones || [];
+          const divisionesIds = divisiones.map((x: any) => x.division_id);
           
-          let metodoLiquidar = metodosPago[d.cliente_id];
+          let metodoLiquidar = metodosPago[clienteId];
           if (!metodoLiquidar || metodoLiquidar === 'CARGO_SOCIO') {
-            metodoLiquidar = metodosPagoLiquidacion[d.cliente_id] || 'EFECTIVO';
+            metodoLiquidar = metodoPagoAbono || 'EFECTIVO';
           } else if (metodoLiquidar === 'MIXTO') {
-            const cardAmt = Number(montoTarjetaMixtoSocio[d.cliente_id] || 0);
+            const cardAmt = Number(montoTarjetaMixtoSocio[clienteId] || 0);
             metodoLiquidar = cardAmt > 0 ? 'TARJETA' : 'EFECTIVO';
           }
 
-          const resLiq = await fetch(`/api/pos/socios/${d.cliente_id}/cargos/liquidar`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              metodo_pago: metodoLiquidar,
-              divisionesIds,
-              area_id: areaId,
-            }),
-          });
-          
-          const dataLiq = await resLiq.json();
-          if (!resLiq.ok) {
-            console.error(`Error al liquidar cargos del socio ${d.nombre}:`, dataLiq.error);
+          if (divisionesIds.length > 0) {
+            const resLiq = await fetch(`/api/pos/socios/${clienteId}/cargos/liquidar`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                metodo_pago: metodoLiquidar,
+                divisionesIds,
+                area_id: areaId,
+              }),
+            });
+            
+            const dataLiq = await resLiq.json();
+            if (!resLiq.ok) {
+              console.error(`Error al liquidar cargos del socio ${d.nombre}:`, dataLiq.error);
+            }
           }
         }
       }
 
+      setDatosUltimoTicket((prev: any) => {
+        if (prev) {
+          return {
+            ...prev,
+            adeudosPagados: totalAdeudosACobrar
+          };
+        }
+        return prev;
+      });
       setPagoExitoso(true);
-      setTimeout(() => {
-        setPagoExitoso(false);
-        setMostrarModalCobro(false);
-        setSplitPreview(null);
-        clearCart();
-        if (areaId) cargarProductos(areaId);
-        cargarCadis();
-        cargarCuentasPendientes();
-      }, 2000);
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
@@ -1232,7 +1820,7 @@ export default function POSView() {
       setBusquedaMezclador('');
       setMostrarModalMezclador(true);
     } else {
-      addToCart(productoAMapear);
+      handleAgregarAlCarrito(productoAMapear);
     }
   };
 
@@ -1240,7 +1828,7 @@ export default function POSView() {
     if (!productoPreparadoSeleccionado) return;
     
     // Agregar la bebida preparada
-    addToCart(productoPreparadoSeleccionado);
+    handleAgregarAlCarrito(productoPreparadoSeleccionado);
     
     // Solo el agua mineral, agua natural o refrescos (categoría 'bebidas') no se cobran. Cervezas y licores/alcoholes sí.
     const esGratis = mezclador.nombre.toLowerCase().includes('agua mineral') ||
@@ -1257,7 +1845,7 @@ export default function POSView() {
       precio_venta: precio,
       precio_unitario: precio,
     };
-    addToCart(mezcladorModificado);
+    handleAgregarAlCarrito(mezcladorModificado);
     
     setMostrarModalMezclador(false);
     setProductoPreparadoSeleccionado(null);
@@ -1266,7 +1854,7 @@ export default function POSView() {
 
   const handleAgregarSinMezclador = () => {
     if (productoPreparadoSeleccionado) {
-      addToCart(productoPreparadoSeleccionado);
+      handleAgregarAlCarrito(productoPreparadoSeleccionado);
     }
     setMostrarModalMezclador(false);
     setProductoPreparadoSeleccionado(null);
@@ -1302,8 +1890,8 @@ export default function POSView() {
     }
   };
 
-  // Verificar si hay algún item de descuento en el carrito
-  const tieneDescuento = cart.some(item => item.categoria?.toLowerCase() === 'descuentos');
+  // Verificar si el descuento de empleado está activado
+  const tieneDescuento = descuentoEmpleado;
 
   // Calcular subtotal (suma de todos los productos que no son de la categoría 'descuentos')
   const subtotalLocal = cart
@@ -1336,12 +1924,11 @@ export default function POSView() {
     }
     if (categoriaSeleccionada === 'TODOS') return true;
     return prod.categoria?.toLowerCase() === categoriaSeleccionada.toLowerCase();
-  });
+  }).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
   // Suma de adeudos que se van a cobrar en este momento (tanto en división como en directo)
   const totalAdeudosACobrar = (() => {
-    if (!splitPreview) return 0;
-    if (splitPreview.divisiones && splitPreview.divisiones.length > 0) {
+    if (splitPreview && splitPreview.divisiones && splitPreview.divisiones.length > 0) {
       return splitPreview.divisiones.reduce((sum: number, d: any) => {
         if (liquidarDeudaSocio[d.cliente_id] && deudasSocios[d.cliente_id]) {
           return sum + deudasSocios[d.cliente_id].total;
@@ -1402,6 +1989,11 @@ export default function POSView() {
         .animate-float-fade-cart {
           animation: floatFadeCart 0.75s cubic-bezier(0.25, 1, 0.5, 1) forwards;
         }
+        @media screen {
+          #printable-ticket {
+            display: none !important;
+          }
+        }
       `}</style>
 
       {/* Animaciones flotantes de "+1 🛒" */}
@@ -1417,20 +2009,16 @@ export default function POSView() {
       ))}
 
       {/* ===== TICKET DE VENTA (OCULTO, SOLO PARA IMPRESIÓN) ===== */}
-      <div className="hidden print:block">
+      <div className="hidden print:block print-wrapper">
         <TicketVenta 
-          cuenta={{
-            id: cuentaId || 'BORRADOR',
+          cuenta={datosUltimoTicket || {
+            id: 'BORRADOR',
             descuento: 0,
             propina: 0,
             metodo_pago: 'EFECTIVO',
-            detalleCuentas: cart.map(c => ({
-              id: Math.random(),
-              cantidad: c.cantidad,
-              precio_unitario: c.precio_venta,
-              producto: c
-            })),
-            mesa: nombreReferencia
+            detalleCuentas: [],
+            mesa: nombreReferencia,
+            socioNombre: ''
           }} 
           areaNombre={areaId === 1 ? 'Bar' : areaId === 2 ? 'Snack' : 'Palapa'} 
           cajeroNombre="Cajero POS"
@@ -1466,7 +2054,21 @@ export default function POSView() {
 
         {/* Selector de Áreas Físicas */}
         <div className="glass-card rounded-2xl p-4 border border-slate-800 flex justify-between items-center">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Seleccionar Entorno:</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Seleccionar Entorno:</h2>
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase border ${
+              isOnline 
+                ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' 
+                : 'bg-rose-500/10 border-rose-500/25 text-rose-450 animate-pulse'
+            }`}>
+              {isOnline ? '🟢 En Línea' : '🔴 Fuera de Línea'}
+            </span>
+            {offlineQueueCount > 0 && (
+              <span className="bg-amber-500/10 border-amber-500/25 text-amber-400 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase animate-pulse">
+                ⏳ {offlineQueueCount} comanda(s) pendiente(s) por enviar
+              </span>
+            )}
+          </div>
           <div className="flex space-x-2">
             {[
               { id: 1, name: 'Bar 🍺' },
@@ -1492,7 +2094,7 @@ export default function POSView() {
         {!areaId ? (
           <div className="glass-card rounded-3xl p-12 text-center border border-slate-800 flex flex-col justify-center items-center">
             <span className="text-5xl animate-bounce">⛳</span>
-            <h3 className="text-xl font-bold mt-4">Punto de Venta POS</h3>
+            <h3 className="text-xl font-bold mt-4">Campestre System</h3>
             <p className="text-slate-400 text-sm mt-1 max-w-sm">
               Por favor selecciona un área física arriba (Bar, Snack o Palapa) para cargar el catálogo de productos y stock local.
             </p>
@@ -1500,7 +2102,7 @@ export default function POSView() {
         ) : !turnoAbiertoHoy ? (
           <div className="glass-card rounded-3xl p-10 text-center border border-slate-800 flex flex-col justify-center items-center bg-slate-900/10">
             <span className="text-5xl animate-pulse mb-2">🔒</span>
-            <h3 className="text-lg font-bold text-amber-500/90 mt-4">Punto de Venta Inactivo</h3>
+            <h3 className="text-lg font-bold text-amber-500/90 mt-4">Sistema Inactivo</h3>
             
             {!turnoActivo ? (
               <div className="mt-4 w-full max-w-sm space-y-4">
@@ -1597,7 +2199,6 @@ export default function POSView() {
                 Todos
               </button>
               {[
-                { id: 'descuentos', label: 'Descuentos 🏷️' },
                 { id: 'bebidas', label: 'Bebidas 🥤' },
                 { id: 'botanas', label: 'Botanas 🍟' },
                 { id: 'cenas', label: 'Cenas 🍽️' },
@@ -1727,7 +2328,7 @@ export default function POSView() {
         )}
 
         {/* Cuentas Pendientes de Pago */}
-        <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
+        <div className="bg-[#1e293b]/70 backdrop-blur-md rounded-3xl border-2 border-yellow-500 p-6 space-y-4 shadow-lg shadow-yellow-500/5">
           <div className="flex justify-between items-center border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
               <Clock className="text-campestre-gold" size={18} />
@@ -1783,10 +2384,10 @@ export default function POSView() {
               {cuentasPendientesFiltradas.map((cta) => (
                 <div
                   key={cta.id}
-                  className={`bg-slate-900/50 border rounded-2xl p-4 flex flex-col justify-between space-y-3.5 transition-all ${
+                  className={`border rounded-2xl p-4 flex flex-col justify-between space-y-3.5 transition-all ${
                     cuentaId === Number(cta.id)
-                      ? 'border-yellow-500/40 bg-yellow-500/5 shadow-md shadow-yellow-500/5'
-                      : 'border-slate-800/80 hover:border-slate-700'
+                      ? 'border-yellow-400 bg-yellow-500/25 shadow-lg shadow-yellow-500/15'
+                      : 'border-yellow-500/40 bg-yellow-500/10 hover:bg-yellow-500/15 hover:border-yellow-500/60'
                   }`}
                 >
                   <div className="flex justify-between items-start gap-2">
@@ -1816,19 +2417,40 @@ export default function POSView() {
                   </div>
 
                   {cta.productos.length > 0 && (
-                    <div className="text-[9px] text-slate-400 bg-slate-950/40 rounded-lg p-2 max-h-16 overflow-y-auto border border-slate-900">
-                      <span className="font-semibold block text-slate-500 mb-0.5 uppercase tracking-wider">Consumo:</span>
+                    <div className="text-[9px] text-slate-400 bg-slate-950/40 rounded-lg p-2 max-h-20 overflow-y-auto border border-slate-900 space-y-1">
+                      <div className="flex justify-between items-center border-b border-slate-800/60 pb-1 mb-1">
+                        <span className="font-semibold text-slate-400 uppercase tracking-wider text-[8px]">Consumos ({cta.productos.length}):</span>
+                        <span className="text-[8px] text-slate-500 font-mono">Hora Orden</span>
+                      </div>
                       {cta.productos.map((p: any, i: number) => (
-                        <div key={i} className="flex justify-between">
-                          <span>{p.cantidad}x {p.nombre}</span>
-                          <span className="text-slate-300 font-bold">${p.subtotal.toFixed(0)}</span>
+                        <div key={i} className="flex justify-between items-center text-[9.5px]">
+                          <span className="text-slate-300 font-medium truncate max-w-[140px]">
+                            <span className="text-campestre-gold font-bold">{p.cantidad}x</span> {p.nombre}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {p.created_at && (
+                              <span className="text-[8.5px] text-amber-400/90 font-mono bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20">
+                                {(() => {
+                                  const dt = new Date(p.created_at);
+                                  const dayRaw = dt.toLocaleDateString('es-MX', { weekday: 'short' });
+                                  const dayStr = dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1);
+                                  const timeStr = dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
+                                  return `${dayStr} ${timeStr}`;
+                                })()}
+                              </span>
+                            )}
+                            <span className="text-slate-200 font-bold">${p.subtotal.toFixed(0)}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
 
                   <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-800/80 pt-2.5">
-                    <span>Abierta: {new Date(cta.fecha).toLocaleTimeString('es-MX', { timeStyle: 'short' })}</span>
+                    <span className="flex items-center gap-1 font-mono text-amber-300/80">
+                      <Clock size={10} className="text-amber-400" />
+                      Abierta: {formatFechaHoraItem(cta.fecha)}
+                    </span>
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -1860,7 +2482,7 @@ export default function POSView() {
         </div>
 
         {/* Cuentas Pagadas (Turno Activo) */}
-        <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-4">
+        <div className="bg-[#1e293b]/70 backdrop-blur-md rounded-3xl border-2 border-emerald-500 p-6 space-y-4 shadow-lg shadow-emerald-500/5">
           <div className="flex justify-between items-center border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
               <Check className="text-emerald-400" size={18} />
@@ -1916,7 +2538,7 @@ export default function POSView() {
               {cuentasPagadasFiltradas.map((cta) => (
                 <div
                   key={cta.id}
-                  className="bg-slate-900/30 border border-slate-850 rounded-2xl p-4 flex flex-col justify-between space-y-3.5 transition-all hover:border-slate-750"
+                  className="bg-emerald-500/10 border border-emerald-500/45 hover:bg-emerald-500/15 hover:border-emerald-500/70 rounded-2xl p-4 flex flex-col justify-between space-y-3.5 transition-all"
                 >
                   <div className="flex justify-between items-start gap-2">
                     <div>
@@ -1981,13 +2603,24 @@ export default function POSView() {
 
                   <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-800/80 pt-2.5">
                     <span>Abierta: {cta.fecha ? new Date(cta.fecha).toLocaleTimeString('es-MX', { timeStyle: 'short' }) : '—'}</span>
-                    <button
-                      type="button"
-                      onClick={() => iniciarEdicionPago(cta)}
-                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg font-bold border border-slate-700 transition-colors"
-                    >
-                      Editar Pago
-                    </button>
+                    <div className="flex gap-2">
+                      {user?.roles?.includes('ADMIN') && (
+                        <button
+                          type="button"
+                          onClick={() => handleSeleccionarCuenta(cta)}
+                          className="px-2.5 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-450 rounded-lg font-bold border border-yellow-500/25 flex items-center gap-1 transition-colors"
+                        >
+                          Editar Cuenta
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => iniciarEdicionPago(cta)}
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded-lg font-bold border border-slate-700 transition-colors"
+                      >
+                        Editar Pago
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2017,25 +2650,47 @@ export default function POSView() {
               )}
             </div>
             {cuentaId && (
-              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between gap-2">
-                <div className="text-[10px] text-yellow-400">
-                  <span className="font-bold uppercase block">Edición Activa</span>
-                  <span>Cuenta #{cuentaId.toString().slice(-6)} ({nombreReferencia || 'Sin Ref'})</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setMostrarModalFusion(true)}
-                    className="text-[10px] bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-2 py-1 rounded-lg border border-blue-500/20 transition-colors font-bold flex items-center space-x-1"
-                  >
-                    <Merge size={12} />
-                    <span>Juntar</span>
-                  </button>
-                  <button
-                    onClick={handleCancelarEdicion}
-                    className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-350 px-2 py-1 rounded-lg border border-slate-700 transition-colors font-bold"
-                  >
-                    Cancelar
-                  </button>
+              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-[10px] text-yellow-400">
+                    <span className="font-bold uppercase block flex items-center gap-1">
+                      📌 CUENTA SELECCIONADA ({nombreReferencia || 'Sin Ref'})
+                    </span>
+                    <span>Modificando adeudo • ID #{cuentaId.toString().slice(-6)}</span>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {cart.some((item) => item.guardado) && (
+                      <button
+                        type="button"
+                        onClick={handleLimpiarConsumosAntiguos}
+                        className="text-[10px] bg-red-500/20 hover:bg-red-500/30 text-red-300 px-2 py-1 rounded-lg border border-red-500/30 transition-colors font-bold flex items-center space-x-1"
+                        title="Eliminar todos los productos anteriormente guardados de esta cuenta"
+                      >
+                        <Trash2 size={11} />
+                        <span>Borrar Antiguos</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setMostrarModalFusion(true)}
+                      className="text-[10px] bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-2 py-1 rounded-lg border border-blue-500/20 transition-colors font-bold flex items-center space-x-1"
+                    >
+                      <Merge size={11} />
+                      <span>Juntar</span>
+                    </button>
+                    <button
+                      onClick={() => setMostrarModalMoverArea(true)}
+                      className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 px-2 py-1 rounded-lg border border-purple-500/20 transition-colors font-bold flex items-center space-x-1"
+                    >
+                      <Move size={11} />
+                      <span>Mover</span>
+                    </button>
+                    <button
+                      onClick={handleCancelarEdicion}
+                      className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-350 px-2 py-1 rounded-lg border border-slate-700 transition-colors font-bold"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -2056,14 +2711,31 @@ export default function POSView() {
               </div>
             ) : (
               cart.map((item) => (
-                <div key={item.id} className="flex justify-between items-center py-2.5 border-b border-slate-800/40 last:border-0">
+                <div id={`cart-item-${item.id}`} key={item.id} className="flex justify-between items-center py-2.5 border-b border-slate-800/40 last:border-0">
                   <div className="flex-1 pr-2">
-                    <h5 className="text-sm font-semibold text-white line-clamp-1">{item.nombre}</h5>
+                    <h5 className="text-sm font-semibold text-white line-clamp-1 flex items-center gap-1.5">
+                      {item.nombre}
+                      {item.esNuevo && !item.guardado && (
+                        <span className="text-[8px] bg-purple-500/30 text-purple-300 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider animate-pulse">Nuevo</span>
+                      )}
+                    </h5>
                     {item.categoria?.toLowerCase() === 'descuentos' ? (
                       <span className="text-xs text-emerald-400 font-bold mt-0.5 block">Aplicado (-${descuentoLocal.toFixed(2)})</span>
                     ) : (
-                      <div className="flex flex-col space-y-1 mt-1">
-                        <span className="text-xs text-campestre-gold font-medium">${item.precio_venta.toFixed(2)} c/u</span>
+                      <div className="flex flex-col space-y-1.5 mt-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-campestre-gold font-medium">${item.precio_venta.toFixed(2)} c/u</span>
+                          {item.guardado ? (
+                            <span className="text-[9.5px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono flex items-center gap-1" title={item.created_at ? `Ordenado: ${new Date(item.created_at).toLocaleString('es-MX')}` : ''}>
+                              <Clock size={10} className="text-amber-400" />
+                              {formatFechaHoraItem(item.created_at)}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                              <Sparkles size={9} /> Nuevo
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="text"
                           value={item.notas || ''}
@@ -2076,7 +2748,22 @@ export default function POSView() {
                   </div>
                   <div className="flex items-center space-x-2.5">
                     {item.categoria?.toLowerCase() !== 'descuentos' && (
-                      <>
+                      <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentQty = item.cantidad;
+                            if (currentQty > 1) {
+                              updateCartQuantity(item.id, currentQty - 1);
+                            } else {
+                              removeFromCart(item.id);
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                          title="Disminuir cantidad"
+                        >
+                          <Minus size={12} />
+                        </button>
                         <input
                           type="text"
                           value={editingQty[item.id] !== undefined ? editingQty[item.id] : (item.cantidad % 1 === 0 ? item.cantidad.toString() : Number(item.cantidad.toFixed(2)).toString())}
@@ -2109,9 +2796,19 @@ export default function POSView() {
                               return copy;
                             });
                           }}
-                          className="w-16 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white text-center py-1 font-bold focus:border-campestre-gold outline-none"
+                          className="w-10 bg-transparent text-xs text-white text-center py-1 font-bold focus:outline-none"
                         />
-                      </>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateCartQuantity(item.id, item.cantidad + 1);
+                          }}
+                          className="p-1 text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                          title="Aumentar cantidad"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </div>
                     )}
                     <button
                       onClick={() => removeFromCart(item.id)}
@@ -2154,114 +2851,77 @@ export default function POSView() {
               </div>
 
               {/* Nombre de Referencia/Mesa */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Referencia de Mesa / Ubicación:</label>
+              <div className="relative">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Referencia de Mesa / Ubicación:</label>
+                  <button
+                    onClick={() => setMostrarModalCrearSocio(true)}
+                    className="text-[10px] text-campestre-gold hover:underline font-bold"
+                  >
+                    + Crear Socio
+                  </button>
+                </div>
                 <input
                   type="text"
                   placeholder="E.g. Mesa 4, Hoyo 9, Camastro Alberca"
                   value={nombreReferencia}
-                  onChange={(e) => setNombreReferencia(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNombreReferencia(val);
+                    if (val.trim().length >= 2) {
+                      buscarSocios(val);
+                    } else {
+                      setSociosBusqueda([]);
+                    }
+                  }}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-campestre-gold"
                 />
-              </div>
 
-              {/* Socios Vinculados */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Socios en Ronda:</span>
-                  <div className="flex space-x-2">
-                    {!cadiId && (
+                {/* Dropdown de Sugerencias (Socios y Cadis) */}
+                {nombreReferencia.trim().length >= 2 && (sociosBusqueda.length > 0 || cadis.some(c => c.nombre.toLowerCase().includes(nombreReferencia.toLowerCase()) || c.numero_cadi.toString().includes(nombreReferencia))) && (
+                  <div className="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-xl text-xs">
+                    {/* Sección de Cadis */}
+                    {cadis
+                      .filter(c => c.nombre.toLowerCase().includes(nombreReferencia.toLowerCase()) || c.numero_cadi.toString().includes(nombreReferencia))
+                      .map(c => (
+                        <button
+                          type="button"
+                          key={`cadi-${c.id}`}
+                          onClick={() => {
+                            setNombreReferencia(c.nombre);
+                            setCadiId(c.id);
+                            setSociosBusqueda([]);
+                          }}
+                          className="w-full text-left px-3.5 py-2 hover:bg-slate-800 border-b border-slate-800 last:border-0 text-white flex justify-between items-center"
+                        >
+                          <div>
+                            <span className="font-semibold text-campestre-gold">Cadi: </span>
+                            <span>{c.nombre}</span>
+                          </div>
+                          <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">#{c.numero_cadi}</span>
+                        </button>
+                      ))}
+
+                    {/* Sección de Socios */}
+                    {sociosBusqueda.map(s => (
                       <button
-                        onClick={() => setMostrarBuscadorSocios(!mostrarBuscadorSocios)}
-                        className="text-[10px] text-campestre-gold hover:underline font-bold"
+                        type="button"
+                        key={`socio-${s.id}`}
+                        onClick={() => {
+                          setNombreReferencia(s.nombre);
+                          setSociosSeleccionadosCadi([s]);
+                          setCadiId(null);
+                          setSociosBusqueda([]);
+                        }}
+                        className="w-full text-left px-3.5 py-2 hover:bg-slate-800 border-b border-slate-800 last:border-0 text-white flex justify-between items-center"
                       >
-                        {mostrarBuscadorSocios ? 'Cerrar Buscador' : '+ Añadir Socio'}
+                        <div>
+                          <span className="font-semibold text-blue-400">Socio: </span>
+                          <span>{s.nombre}</span>
+                        </div>
+                        <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">{s.codigo_socio}</span>
                       </button>
-                    )}
-                    <button
-                      onClick={() => setMostrarModalCrearSocio(true)}
-                      className="text-[10px] text-campestre-gold hover:underline font-bold"
-                    >
-                      + Crear Socio
-                    </button>
-                  </div>
-                </div>
-
-                {/* Buscador de Socios Directo (si no hay Cadi) */}
-                {mostrarBuscadorSocios && !cadiId && (
-                  <div className="bg-slate-850 p-3 rounded-xl border border-slate-700 space-y-2 mb-3">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2 text-slate-400" size={14} />
-                      <input
-                        type="text"
-                        placeholder="Buscar por nombre o ID..."
-                        value={busquedaTexto}
-                        onChange={(e) => buscarSocios(e.target.value)}
-                        className="w-full pl-8 pr-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 outline-none"
-                      />
-                    </div>
-                    {/* Botón Escanear QR */}
-                    <button
-                      onClick={() => setMostrarSimuladorQR(true)}
-                      className="w-full py-1.5 bg-campestre-gold/10 text-campestre-gold hover:bg-campestre-gold/20 text-[10px] font-bold rounded-lg border border-campestre-gold/25"
-                    >
-                      📷 Simular Escaneo Código QR
-                    </button>
-
-                    {/* Resultados buscador */}
-                    {sociosBusqueda.length > 0 && (
-                      <div className="max-h-24 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg mt-1 text-xs">
-                        {sociosBusqueda.map((s) => (
-                          <button
-                            key={s.id}
-                            onClick={() => {
-                              if (!sociosSeleccionadosCadi.some(x => x.id === s.id)) {
-                                setSociosSeleccionadosCadi([...sociosSeleccionadosCadi, s]);
-                              }
-                              setSociosBusqueda([]);
-                              setBusquedaTexto('');
-                            }}
-                            className="w-full text-left px-3 py-1.5 hover:bg-slate-800 border-b border-slate-800 last:border-0 text-white flex justify-between"
-                          >
-                            <span>{s.nombre}</span>
-                            <span className="text-[10px] text-slate-400">{s.codigo_socio}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Mostrar lista de socios asociados */}
-                {sociosSeleccionadosCadi.length === 0 ? (
-                  <p className="text-[10px] text-slate-500 italic">No hay socios vinculados. Se cobrará a una cuenta global.</p>
-                ) : (
-                  <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
-                    {sociosSeleccionadosCadi.map((socio) => (
-                      <div key={socio.id} className="flex justify-between items-center bg-slate-850 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
-                        <div className="flex items-center space-x-1.5">
-                          <User size={12} className="text-slate-400" />
-                          <span className="text-white font-medium truncate max-w-[120px]">{socio.nombre}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-350">{socio.codigo_socio}</span>
-                          {!cadiId && (
-                            <button
-                              onClick={() => setSociosSeleccionadosCadi(sociosSeleccionadosCadi.filter(s => s.id !== socio.id))}
-                              className="text-red-400 hover:text-red-300 text-[10px] font-bold"
-                            >
-                              x
-                            </button>
-                          )}
-                        </div>
-                      </div>
                     ))}
-                    {cadiId && (
-                      <p className="text-[9px] text-emerald-400 flex items-center space-x-1 mt-1 font-medium">
-                        <Users size={10} />
-                        <span>Split automático activo por Cadi ({sociosSeleccionadosCadi.length} partes).</span>
-                      </p>
-                    )}
                   </div>
                 )}
               </div>
@@ -2271,6 +2931,127 @@ export default function POSView() {
           {/* Totales y Botón Guardar / Pagar */}
           {cart.length > 0 && (
             <div className="p-6 border-t border-slate-800 space-y-4">
+              <label className="flex items-center space-x-2.5 cursor-pointer select-none bg-slate-950/40 rounded-xl px-3 py-2 border border-slate-800 hover:border-slate-750 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={descuentoEmpleado}
+                  onChange={(e) => setDescuentoEmpleado(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-800 text-campestre-gold focus:ring-campestre-gold/50 focus:ring-offset-slate-900 w-4 h-4 cursor-pointer"
+                />
+                <span className="text-xs font-semibold text-slate-300">🏷️ Descuento Empleado (30%)</span>
+              </label>
+
+              {/* Sección de Adeudos de Socios Seleccionados */}
+              {Object.keys(cargosSociosPanel).some(key => cargosSociosPanel[Number(key)]?.total > 0) && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-3 shadow-lg shadow-amber-500/5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                      ⚠️ Socios con Adeudos Pendientes
+                    </span>
+                    <span className="text-[9.5px] text-amber-300/80 font-mono">Marca la casilla para ver productos y abonar</span>
+                  </div>
+                  <div className="space-y-3">
+                    {Object.keys(cargosSociosPanel).map(key => {
+                      const clienteId = Number(key);
+                      const cargos = cargosSociosPanel[clienteId];
+                      if (!cargos || cargos.total <= 0) return null;
+                      const socioObj = sociosSeleccionadosCadi.find(s => s.id === clienteId);
+                      if (!socioObj) return null;
+                      const estaMarcado = !!liquidarCargosPanel[clienteId];
+
+                      return (
+                        <div key={clienteId} className={`border rounded-xl overflow-hidden transition-all ${estaMarcado ? 'border-amber-400 bg-slate-950/90 shadow-md shadow-amber-500/10' : 'border-slate-800 bg-slate-950/60'}`}>
+                          <label className="flex items-center justify-between p-3 cursor-pointer hover:bg-amber-500/5 transition-colors">
+                            <div className="flex items-center space-x-2.5">
+                              <input
+                                type="checkbox"
+                                checked={estaMarcado}
+                                onChange={(e) => setLiquidarCargosPanel({
+                                  ...liquidarCargosPanel,
+                                  [clienteId]: e.target.checked
+                                })}
+                                className="rounded border-slate-700 bg-slate-800 text-campestre-gold focus:ring-campestre-gold focus:ring-offset-0 w-4.5 h-4.5 cursor-pointer"
+                              />
+                              <div className="text-left">
+                                <span className="text-xs font-bold text-white block">{socioObj.nombre}</span>
+                                <span className="text-[9.5px] text-slate-400 font-mono">Socio #{socioObj.codigo_socio}</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xs font-extrabold text-amber-400 font-mono block">${cargos.total.toFixed(2)}</span>
+                              <span className="text-[9px] text-amber-300/70 font-semibold">{cargos.divisiones.length} consumo(s) pendiente(s)</span>
+                            </div>
+                          </label>
+
+                          {/* Desglose detallado de productos y fechas ("de cuándo") al marcar la palomita */}
+                          {estaMarcado && cargos.divisiones && cargos.divisiones.length > 0 && (
+                            <div className="border-t border-slate-800/80 bg-slate-900/80 p-3 space-y-2.5 text-[10px]">
+                              <div className="flex justify-between items-center text-slate-400 font-bold uppercase tracking-wider text-[9px]">
+                                <span>📋 Productos en adeudo ({socioObj.nombre}):</span>
+                                <span>De cuándo y monto</span>
+                              </div>
+                              {cargos.divisiones.map((div: any, dIdx: number) => (
+                                <div key={dIdx} className="bg-slate-950/80 border border-slate-800 rounded-lg p-2.5 space-y-2">
+                                  <div className="flex justify-between items-center border-b border-slate-800/80 pb-1.5 flex-wrap gap-1">
+                                    <div className="flex items-center gap-1.5 text-slate-300 flex-wrap">
+                                      <span className="font-bold text-amber-300">Cuenta #{div.cuenta_id}</span>
+                                      <span className="text-slate-500">• {div.area}</span>
+                                      <span className="text-[9px] text-amber-300/90 font-mono flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                        <Clock size={10} className="text-amber-400" />
+                                        {formatFechaHoraItem(div.fecha)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCargarCuentaEspecifica(div.cuenta_id)}
+                                        className="text-[9px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30 font-bold transition-colors flex items-center gap-1"
+                                        title="Cargar esta cuenta en el editor del POS para modificar o eliminar productos"
+                                      >
+                                        ✏️ Editar / Eliminar consumos
+                                      </button>
+                                      <span className="font-extrabold text-amber-400 font-mono">${Number(div.monto).toFixed(2)}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Lista de productos de la división */}
+                                  {div.productos && div.productos.length > 0 && (
+                                    <div className="space-y-1 pl-1">
+                                      {div.productos.map((prod: any, pIdx: number) => (
+                                        <div key={pIdx} className="flex justify-between items-center text-slate-300">
+                                          <span className="truncate max-w-[200px]">
+                                            <span className="text-amber-400 font-bold">{prod.cantidad}x</span> {prod.nombre}
+                                            {prod.precio && <span className="text-slate-500 text-[9px] ml-1">(${prod.precio.toFixed(2)} c/u)</span>}
+                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            {prod.created_at && (
+                                              <span className="text-[8.5px] text-amber-300/80 font-mono bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20">
+                                                {(() => {
+                                                  const dt = new Date(prod.created_at);
+                                                  const dayRaw = dt.toLocaleDateString('es-MX', { weekday: 'short' });
+                                                  const dayStr = dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1);
+                                                  const timeStr = dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
+                                                  return `${dayStr} ${timeStr}`;
+                                                })()}
+                                              </span>
+                                            )}
+                                            <span className="text-slate-200 font-bold font-mono">${Number(prod.subtotal).toFixed(2)}</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 {tieneDescuento && (
                   <>
@@ -2288,9 +3069,40 @@ export default function POSView() {
                   <span>Total del Pedido:</span>
                   <span className="gold-gradient-text">${totalLocal.toFixed(2)}</span>
                 </div>
+                {Object.keys(liquidarCargosPanel).some(key => liquidarCargosPanel[Number(key)]) && (
+                  <>
+                    <div className="flex justify-between text-xs text-slate-450 border-t border-slate-800/60 pt-2">
+                      <span>Consumo del día:</span>
+                      <span className="font-semibold text-white">${totalLocal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-amber-400 font-semibold">
+                      <span>Adeudos Seleccionados:</span>
+                      <span>+${Object.keys(liquidarCargosPanel).reduce((sum, key) => {
+                        const cid = Number(key);
+                        return sum + (liquidarCargosPanel[cid] ? (cargosSociosPanel[cid]?.total || 0) : 0);
+                      }, 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-base font-extrabold text-white Outfit border-t border-slate-800/60 pt-2">
+                      <span>Total General (Pedido + Adeudos):</span>
+                      <span className="gold-gradient-text">${(totalLocal + Object.keys(liquidarCargosPanel).reduce((sum, key) => {
+                        const cid = Number(key);
+                        return sum + (liquidarCargosPanel[cid] ? (cargosSociosPanel[cid]?.total || 0) : 0);
+                      }, 0)).toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  disabled={cart.length === 0}
+                  className="py-3 px-4.5 bg-slate-100 dark:bg-slate-900 hover:bg-slate-250 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-800 rounded-xl transition-colors text-xs flex items-center justify-center font-bold"
+                  title="Imprimir Pre-ticket (80mm)"
+                >
+                  🖨️
+                </button>
                 <button
                   onClick={handleSoloGuardarConsumos}
                   disabled={cargando}
@@ -2336,13 +3148,42 @@ export default function POSView() {
               </div>
             )}
 
-            {pagoExitoso ? (
-              <div className="text-center py-8 space-y-3">
+             {pagoExitoso ? (
+              <div className="text-center py-8 space-y-4">
                 <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30">
                   <Check size={36} />
                 </div>
                 <h4 className="text-xl font-bold text-white font-sans">¡Transacción Exitosa!</h4>
                 <p className="text-xs text-slate-400">Los stocks se han descontado y el pago fue registrado correctamente.</p>
+                <div className="flex flex-col gap-2 pt-2 max-w-[200px] mx-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDetenerTimer(true);
+                      setTimeout(() => {
+                        window.print();
+                      }, 100);
+                    }}
+                    className="py-2.5 px-4 bg-campestre-gold hover:bg-campestre-gold/90 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2"
+                  >
+                    🖨️ Imprimir Recibo {detenerTimer ? '' : `(${countdownPrint}s)`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMostrarModalCobro(false);
+                      setPagoExitoso(false);
+                      setSplitPreview(null);
+                      clearCart();
+                      if (areaId) cargarProductos(areaId);
+                      cargarCadis();
+                      cargarCuentasPendientes();
+                    }}
+                    className="py-2 px-4 bg-slate-850 hover:bg-slate-800 text-slate-300 font-bold rounded-xl text-xs transition-colors"
+                  >
+                    Regresar al POS
+                  </button>
+                </div>
               </div>
             ) : splitPreview.divisiones.length > 0 ? (
               /* === MODO SPLIT (con socios) === */
@@ -2374,7 +3215,7 @@ export default function POSView() {
                           <div className="flex items-center space-x-3">
                             <span className="text-sm font-extrabold text-white Outfit">${d.monto.toFixed(2)}</span>
                             <select
-                              value={metodosPago[d.cliente_id] || 'CARGO_SOCIO'}
+                              value={metodosPago[d.cliente_id] || 'EFECTIVO'}
                               onChange={(e) => setMetodosPago({ ...metodosPago, [d.cliente_id]: e.target.value })}
                               className="bg-slate-800 border border-slate-700 text-xs text-white rounded-lg px-2.5 py-1.5 focus:border-campestre-gold outline-none"
                             >
@@ -2386,6 +3227,63 @@ export default function POSView() {
                             </select>
                           </div>
                         </div>
+
+                        {((metodosPago[d.cliente_id] || 'EFECTIVO') === 'EFECTIVO' || (splitPreview.divisiones.length === 1 && abonoMonto !== '' && metodoPagoAbono === 'EFECTIVO')) && (
+                          <div className="mt-2.5 p-3 bg-slate-900 border border-emerald-500/20 rounded-xl space-y-2.5">
+                            <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Monto Recibido (Efectivo)</div>
+                            <div className="relative">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={montoRecibidoSocio[d.cliente_id] || ''}
+                                onChange={(e) => setMontoRecibidoSocio({ ...montoRecibidoSocio, [d.cliente_id]: e.target.value })}
+                                placeholder="0.00"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-6 pr-2 py-1 text-xs text-white font-bold outline-none focus:border-emerald-500"
+                              />
+                            </div>
+                            {(() => {
+                              const totalSocio = ((splitPreview.divisiones.length === 1 && abonoMonto !== '') ? Number(abonoMonto) : d.monto) + 
+                                (liquidarDeudaSocio[d.cliente_id] ? (deudasSocios[d.cliente_id]?.total || 0) : 0);
+                              return (
+                                <>
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setMontoRecibidoSocio({ ...montoRecibidoSocio, [d.cliente_id]: totalSocio.toFixed(2) })}
+                                      className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded text-[9px] font-bold transition-all"
+                                    >
+                                      Monto Exacto (${totalSocio.toFixed(0)})
+                                    </button>
+                                    {[50, 100, 200, 500].filter(m => m >= totalSocio).map(m => (
+                                      <button
+                                        key={m}
+                                        type="button"
+                                        onClick={() => setMontoRecibidoSocio({ ...montoRecibidoSocio, [d.cliente_id]: m.toFixed(2) })}
+                                        className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-350 border border-slate-700 rounded text-[9px] font-bold transition-all"
+                                      >
+                                        ${m}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {montoRecibidoSocio[d.cliente_id] && Number(montoRecibidoSocio[d.cliente_id]) >= totalSocio && (
+                                    <div className="flex justify-between items-center pt-1.5 border-t border-slate-800/60 mt-1">
+                                      <span className="text-[10px] text-slate-400 font-bold">Cambio a entregar:</span>
+                                      <span className="text-xs font-extrabold text-emerald-400">
+                                        ${(Number(montoRecibidoSocio[d.cliente_id]) - totalSocio).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {montoRecibidoSocio[d.cliente_id] && Number(montoRecibidoSocio[d.cliente_id]) > 0 && Number(montoRecibidoSocio[d.cliente_id]) < totalSocio && (
+                                    <div className="text-right mt-1">
+                                      <span className="text-[9px] text-red-400 font-bold">Monto insuficiente</span>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        )}
 
                         {metodosPago[d.cliente_id] === 'MIXTO' && (
                           <div className="mt-2.5 p-3 bg-slate-900 border border-purple-500/20 rounded-xl space-y-2.5">
@@ -2457,7 +3355,7 @@ export default function POSView() {
                                 />
                                 <span>Cobrar adeudo</span>
                               </label>
-                              {liquidarDeudaSocio[d.cliente_id] && (metodosPago[d.cliente_id] === 'CARGO_SOCIO' || !metodosPago[d.cliente_id]) && (
+                              {liquidarDeudaSocio[d.cliente_id] && metodosPago[d.cliente_id] === 'CARGO_SOCIO' && (
                                 <select
                                   value={metodosPagoLiquidacion[d.cliente_id] || 'EFECTIVO'}
                                   onChange={(e) => setMetodosPagoLiquidacion({ ...metodosPagoLiquidacion, [d.cliente_id]: e.target.value })}
@@ -2593,7 +3491,9 @@ export default function POSView() {
                       <span>
                         {cargando 
                           ? 'Procesando transacciones...' 
-                          : `Pagar $${totalMasAdeudos.toFixed(2)}`
+                          : (splitPreview?.divisiones?.length === 1 && abonoMonto && Number(abonoMonto) > 0)
+                            ? `Abonar $${Number(abonoMonto).toFixed(2)} (Cargar $${Math.max(0, totalMasAdeudos - Number(abonoMonto)).toFixed(2)} a Socio)`
+                            : `Pagar $${totalMasAdeudos.toFixed(2)}`
                         }
                       </span>
                     </button>
@@ -3131,6 +4031,16 @@ export default function POSView() {
             </div>
 
             <form onSubmit={handleCrearSocioRapido} className="space-y-4">
+              <div className="flex gap-4">
+                <label className="flex items-center gap-1.5 text-xs text-white font-medium cursor-pointer">
+                  <input type="radio" name="tipo_socio_rapido" value="SOCIO" checked={tipoSocioNuevo === 'SOCIO'} onChange={() => setTipoSocioNuevo('SOCIO')} className="text-campestre-gold focus:ring-0" />
+                  Socio
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-white font-medium cursor-pointer">
+                  <input type="radio" name="tipo_socio_rapido" value="EMPLEADO" checked={tipoSocioNuevo === 'EMPLEADO'} onChange={() => setTipoSocioNuevo('EMPLEADO')} className="text-campestre-gold focus:ring-0" />
+                  Empleado
+                </label>
+              </div>
               <div>
                 <label className="block text-[10px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">Código de Socio *</label>
                 <input
@@ -3462,7 +4372,7 @@ export default function POSView() {
                     .filter(c => c.id.toString() !== cuentaId?.toString())
                     .map(c => (
                       <option key={c.id.toString()} value={c.id.toString()}>
-                        {c.nombre || `Cuenta #${c.id.toString().slice(-6)}`} (Total: ${c.total.toFixed(2)})
+                        {c.referencia}
                       </option>
                     ))}
                 </select>
@@ -3476,6 +4386,56 @@ export default function POSView() {
                 {fusionando ? <RefreshCw size={14} className="animate-spin" /> : <Merge size={14} />}
                 <span>Juntar Cuentas</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Mover de Área */}
+      {mostrarModalMoverArea && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl shadow-glass p-6 space-y-6">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+              <h3 className="text-lg font-bold Outfit flex items-center space-x-2">
+                <Move className="text-purple-400" size={18} />
+                <span>Mover Cuenta de Área</span>
+              </h3>
+              <button
+                onClick={() => { setMostrarModalMoverArea(false); setErrorMsg(''); }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {errorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-4 py-2.5 rounded-xl text-center">
+                {errorMsg}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <p className="text-xs text-slate-400">
+                Selecciona el área de destino para transferir esta cuenta. Recuerda que debe haber un turno activo en el área de destino.
+              </p>
+              
+              <div className="grid grid-cols-1 gap-3">
+                {[
+                  { id: 1, name: 'Bar 🍺' },
+                  { id: 2, name: 'Snack 🍔' },
+                  { id: 3, name: 'Palapa 🌴' }
+                ].map(area => (
+                  <button
+                    key={area.id}
+                    onClick={() => handleMoverArea(area.id)}
+                    disabled={moviendoArea}
+                    className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 active:bg-slate-750 text-white font-bold rounded-xl text-xs flex items-center justify-between border border-slate-700 hover:border-purple-500/50 transition-all disabled:opacity-50"
+                  >
+                    <span>{area.name}</span>
+                    {moviendoArea ? <RefreshCw size={12} className="animate-spin text-purple-400" /> : <Move size={12} className="text-purple-400" />}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

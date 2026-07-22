@@ -123,6 +123,11 @@ export async function listarProductosPorArea(req: AuthenticatedRequest, res: Res
       include: {
         producto: true,
       },
+      orderBy: {
+        producto: {
+          nombre: 'asc',
+        },
+      },
     });
 
     // Formatear la respuesta
@@ -191,7 +196,7 @@ export async function abrirCuenta(req: AuthenticatedRequest, res: Response) {
 // 3. Registrar consumos (guardar cuenta abierta / actualizar detalles)
 export async function guardarConsumos(req: AuthenticatedRequest, res: Response) {
   const cuentaId = parseInt(req.params.cuentaId);
-  const { productos, cadi_id, nombre_referencia, cliente_id } = req.body; // Array de { producto_id, cantidad }
+  const { productos, cadi_id, nombre_referencia, cliente_id, descuento_empleado, dejar_abierta } = req.body; // Array de { producto_id, cantidad }
 
   if (!Array.isArray(productos)) {
     return res.status(400).json({ error: 'Los productos deben ser enviados como un arreglo' });
@@ -199,14 +204,37 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
 
   try {
     const cuenta = await prisma.cuenta.findUnique({ where: { id: cuentaId } });
-    if (!cuenta || cuenta.estado !== 'ABIERTA') {
-      return res.status(404).json({ error: 'La cuenta no existe o ya está cerrada' });
+    const esAdmin = req.user?.roles?.includes('ADMIN') || false;
+    if (!cuenta || (cuenta.estado !== 'ABIERTA' && (!esAdmin || cuenta.estado !== 'PAGADA'))) {
+      return res.status(404).json({ error: 'La cuenta no existe, ya está cerrada, o no tiene permisos de administrador para editarla.' });
     }
 
     const usuarioId = req.user?.id || 1; // Fallback admin if needed
 
     // Usaremos una transacción para recrear los detalles e imputar subtotales
     const cuentaActualizada = await prisma.$transaction(async (tx) => {
+      // Determinar si hay otro consumo en Snack, Bar, Palapa para el mismo socio y juntar las cuentas
+      const finalClienteId = cliente_id !== undefined ? (cliente_id ? Number(cliente_id) : null) : cuenta.cliente_id;
+      let otraCuenta: any = null;
+      let detallesOtra: any[] = [];
+
+      if ((dejar_abierta === true || dejar_abierta === 'true') && finalClienteId && [1, 2, 3].includes(cuenta.area_id)) {
+        otraCuenta = await tx.cuenta.findFirst({
+          where: {
+            id: { not: cuentaId },
+            cliente_id: finalClienteId,
+            estado: 'ABIERTA',
+            area_id: { in: [1, 2, 3] }
+          },
+          include: {
+            detalleCuentas: true
+          }
+        });
+        if (otraCuenta) {
+          detallesOtra = otraCuenta.detalleCuentas;
+        }
+      }
+
       // 1. Obtener detalles previos para calcular diferencia de stock
       const detallesPrevios = await tx.detalleCuenta.findMany({ where: { cuenta_id: cuentaId } });
       const prevQtys: Record<number, any> = {};
@@ -215,8 +243,52 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
         prevQtys[dp.producto_id] = prevQtys[dp.producto_id].plus(new Decimal(dp.cantidad));
       }
 
+      if (otraCuenta) {
+        for (const dp of detallesOtra) {
+          if (!prevQtys[dp.producto_id]) prevQtys[dp.producto_id] = new Decimal(0);
+          prevQtys[dp.producto_id] = prevQtys[dp.producto_id].plus(new Decimal(dp.cantidad));
+        }
+      }
+
+      const productosFinales = [...productos];
+      if (otraCuenta) {
+        const areaActual = cuenta.area_id === 1 ? 'Bar' : cuenta.area_id === 2 ? 'Snack' : 'Palapa';
+        const areaOrigen = otraCuenta.area_id === 1 ? 'Bar' : otraCuenta.area_id === 2 ? 'Snack' : 'Palapa';
+
+        // Etiquetar los consumos nuevos/existentes de la cuenta actual con su área de origen
+        for (let i = 0; i < productosFinales.length; i++) {
+          const tag = `(${areaActual})`;
+          if (!productosFinales[i].notas || !productosFinales[i].notas.includes(tag)) {
+            productosFinales[i].notas = productosFinales[i].notas 
+              ? `${productosFinales[i].notas} ${tag}`
+              : tag;
+          }
+        }
+
+        // Fusionar consumos de la otra cuenta
+        for (const dp of detallesOtra) {
+          const areaNota = `(${areaOrigen})`;
+          const notaLimpia = dp.notas ? `${dp.notas} ${areaNota}` : areaNota;
+
+          const index = productosFinales.findIndex(p => p.producto_id === dp.producto_id);
+          if (index !== -1) {
+            productosFinales[index].cantidad = Number(productosFinales[index].cantidad) + Number(dp.cantidad);
+            productosFinales[index].notas = productosFinales[index].notas 
+              ? `${productosFinales[index].notas} | ${notaLimpia}`
+              : notaLimpia;
+          } else {
+            productosFinales.push({
+              producto_id: dp.producto_id,
+              cantidad: Number(dp.cantidad),
+              precio_unitario: Number(dp.precio_unitario),
+              notas: notaLimpia
+            });
+          }
+        }
+      }
+
       const newQtys: Record<number, any> = {};
-      for (const p of productos) {
+      for (const p of productosFinales) {
         if (!newQtys[p.producto_id]) newQtys[p.producto_id] = new Decimal(0);
         newQtys[p.producto_id] = newQtys[p.producto_id].plus(new Decimal(p.cantidad));
       }
@@ -233,20 +305,24 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
 
       // Eliminar detalles previos de la cuenta
       await tx.detalleCuenta.deleteMany({ where: { cuenta_id: cuentaId } });
-
-      let subtotalAcumulado = new Decimal(0);
-      let tieneDescuentoGlobal = false;
-
-      // 1. Identificar si existe algún ítem en la categoría 'descuentos'
-      for (const p of productos) {
-        const prod = await tx.producto.findUnique({ where: { id: p.producto_id } });
-        if (prod && prod.categoria?.toLowerCase() === 'descuentos') {
-          tieneDescuentoGlobal = true;
-        }
+      if (otraCuenta) {
+        await tx.detalleCuenta.deleteMany({ where: { cuenta_id: otraCuenta.id } });
+        await tx.cuenta.update({
+          where: { id: otraCuenta.id },
+          data: {
+            estado: 'FUSIONADA',
+            subtotal: 0,
+            descuento: 0,
+            impuestos: 0,
+            total: 0
+          }
+        });
       }
 
+      let subtotalAcumulado = new Decimal(0);
+
       // 2. Crear nuevos detalles
-      for (const p of productos) {
+      for (const p of productosFinales) {
         const prod = await tx.producto.findUnique({ where: { id: p.producto_id } });
         if (!prod) {
           throw new Error(`Producto con ID ${p.producto_id} no encontrado`);
@@ -258,14 +334,7 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
           : new Decimal(prod.precio_venta);
         const itemSubtotal = cantidadDec.mul(precioDec);
 
-        const isDescuento = prod.categoria?.toLowerCase() === 'descuentos';
-
-        // Si es el ítem de descuento, no suma al subtotal de consumo
-        const itemTotal = isDescuento ? new Decimal(0) : itemSubtotal;
-
-        if (!isDescuento) {
-          subtotalAcumulado = subtotalAcumulado.plus(itemSubtotal);
-        }
+        subtotalAcumulado = subtotalAcumulado.plus(itemSubtotal);
 
         await tx.detalleCuenta.create({
           data: {
@@ -274,17 +343,19 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
             cantidad: cantidadDec,
             precio_unitario: precioDec,
             descuento: new Decimal(0),
-            subtotal: isDescuento ? new Decimal(0) : itemSubtotal,
-            total: itemTotal,
+            subtotal: itemSubtotal,
+            total: itemSubtotal,
             estado_item: 'ENTREGADO',
             notas: p.notas || null,
+            created_at: p.created_at ? new Date(p.created_at) : new Date(),
           },
         });
       }
 
-      // 3. Si tiene descuento global del 30%, se calcula sobre la suma de los otros productos
+      // 3. Si tiene descuento global del 30%, se calcula sobre el subtotal acumulado
+      const tieneDescuentoGlobal = descuento_empleado === true || descuento_empleado === 'true';
       const descuentoAcumulado = tieneDescuentoGlobal ? subtotalAcumulado.mul(0.30).toDP(2) : new Decimal(0);
-      const total = subtotalAcumulado.minus(descuentoAcumulado);
+      const totalDec = subtotalAcumulado.minus(descuentoAcumulado);
       const impuestos = new Decimal(0);
 
       // Actualizar cuenta madre
@@ -292,7 +363,7 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
         subtotal: subtotalAcumulado,
         descuento: descuentoAcumulado,
         impuestos,
-        total,
+        total: totalDec,
       };
 
       if (cadi_id !== undefined) {
@@ -303,6 +374,20 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
       }
       if (nombre_referencia !== undefined) {
         updateData.nombre_referencia = nombre_referencia;
+      }
+
+      if (cuenta.estado === 'PAGADA') {
+        const divisiones = await tx.divisionCuenta.findMany({ where: { cuenta_id: cuentaId } });
+        for (const div of divisiones) {
+          const porcentaje = new Decimal(div.porcentaje_participacion);
+          const nuevoMonto = totalDec.mul(porcentaje).div(100).toDP(2);
+          await tx.divisionCuenta.update({
+            where: { id: div.id },
+            data: {
+              monto_proporcional: nuevoMonto
+            }
+          });
+        }
       }
 
       return await tx.cuenta.update({
@@ -319,6 +404,11 @@ export async function guardarConsumos(req: AuthenticatedRequest, res: Response) 
         },
       });
     });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('cuenta:actualizar');
+    }
 
     return res.json(cuentaActualizada);
   } catch (error: any) {
@@ -486,12 +576,10 @@ export async function pagarYCerrarCuenta(req: AuthenticatedRequest, res: Respons
         if (abonoDec.lessThan(0)) {
           throw new Error('El abono no puede ser menor a cero');
         }
-        if (abonoDec.greaterThan(totalCuenta)) {
-          throw new Error('El abono no puede ser mayor al total de la cuenta');
-        }
-
         const cargoSocioMonto = totalCuenta.minus(abonoDec);
-        const porcentajeCargo = cargoSocioMonto.div(totalCuenta).mul(100);
+        const porcentajeCargo = cargoSocioMonto.greaterThan(0)
+          ? cargoSocioMonto.div(totalCuenta).mul(100)
+          : new Decimal(0);
 
         if (cargoSocioMonto.greaterThan(0)) {
           await tx.divisionCuenta.create({
@@ -614,6 +702,11 @@ export async function pagarYCerrarCuenta(req: AuthenticatedRequest, res: Respons
           data: { estado: 'DISPONIBLE' },
         });
       }
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('cuenta:actualizar');
     }
 
     return res.json({ message: 'Cuenta pagada y cerrada exitosamente' });
@@ -809,12 +902,14 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
           }] : [],
       productos: c.detalleCuentas.map((d) => ({
         id: d.producto.id,
+        detalle_id: d.id,
         nombre: d.producto.nombre,
         precio_venta: Number(d.precio_unitario),
         categoria: d.producto.categoria,
         cantidad: Number(d.cantidad),
         subtotal: Number(d.subtotal),
         notas: d.notas || null,
+        created_at: d.created_at,
       })),
       divisiones: c.divisionesCuentas.map((d) => ({
         cliente: d.cliente.nombre,
@@ -969,14 +1064,7 @@ export async function obtenerBalanceCaja(req: AuthenticatedRequest, res: Respons
         area_id: areaIdNum,
         cerrado_at: null
       },
-      include: {
-        cuentas: {
-          where: { estado: 'PAGADA' },
-          include: {
-            divisionesCuentas: true,
-          },
-        },
-      },
+      select: { id: true, fondo_inicial: true },
       orderBy: { id: 'desc' }
     });
 
@@ -984,70 +1072,107 @@ export async function obtenerBalanceCaja(req: AuthenticatedRequest, res: Respons
       return res.json({ efectivo: 0, tarjeta: 0, transferencia: 0, cargo_socio: 0 });
     }
 
-    let efectivo = 0;
+    let efectivo = Number(turno.fondo_inicial || 0);
     let tarjeta = 0;
     let transferencia = 0;
     let cargo_socio = 0;
 
-    turno.cuentas.forEach(cuenta => {
-      if (cuenta.divisionesCuentas.length > 0) {
-        let sumaDivisiones = 0;
-        cuenta.divisionesCuentas.forEach(div => {
-          const monto = Number(div.monto_proporcional);
-          const metodo = div.metodo_pago;
-
-          if (metodo === 'CARGO_SOCIO') {
-            cargo_socio += monto;
-          } else if (!div.turno_pago_id) {
-            if (metodo === 'EFECTIVO') efectivo += monto;
-            else if (metodo === 'TARJETA') tarjeta += monto;
-            else if (metodo === 'TRANSFERENCIA') transferencia += monto;
-            else if (metodo === 'MIXTO') {
-              efectivo += Number(div.monto_efectivo || 0);
-              tarjeta += Number(div.monto_tarjeta || 0);
-            }
-          }
-          sumaDivisiones += monto;
-        });
-
-        // Abono directo
-        const totalCuenta = Number(cuenta.total);
-        if (cuenta.metodo_pago && totalCuenta > sumaDivisiones) {
-          const dif = totalCuenta - sumaDivisiones;
-          if (cuenta.metodo_pago === 'EFECTIVO') efectivo += dif;
-          else if (cuenta.metodo_pago === 'TARJETA') tarjeta += dif;
-          else if (cuenta.metodo_pago === 'TRANSFERENCIA') transferencia += dif;
-          else if (cuenta.metodo_pago === 'MIXTO') {
-            efectivo += Number(cuenta.monto_efectivo || 0);
-            tarjeta += Number(cuenta.monto_tarjeta || 0);
-          }
-        }
-      } else if (cuenta.metodo_pago) {
-        const total = Number(cuenta.total);
-        const metodo = cuenta.metodo_pago;
-        if (metodo === 'EFECTIVO') efectivo += total;
-        else if (metodo === 'TARJETA') tarjeta += total;
-        else if (metodo === 'TRANSFERENCIA') transferencia += total;
-        else if (metodo === 'CARGO_SOCIO') cargo_socio += total;
-        else if (metodo === 'MIXTO') {
-          efectivo += Number(cuenta.monto_efectivo || 0);
-          tarjeta += Number(cuenta.monto_tarjeta || 0);
-        }
+    // 1. Agrupar cuentas directas (sin divisiones) por método de pago
+    const directasPorMetodo = await prisma.cuenta.groupBy({
+      by: ['metodo_pago'],
+      _sum: { total: true },
+      where: {
+        turno_id: turno.id,
+        estado: 'PAGADA',
+        divisionesCuentas: { none: {} }
       }
     });
 
-    // Sumar cargos liquidados en este turno
-    const divisionesPagadasTurno = await prisma.divisionCuenta.findMany({
-      where: { turno_pago_id: turno.id },
+    directasPorMetodo.forEach(group => {
+      const total = Number(group._sum.total || 0);
+      if (group.metodo_pago === 'EFECTIVO') efectivo += total;
+      else if (group.metodo_pago === 'TARJETA') tarjeta += total;
+      else if (group.metodo_pago === 'TRANSFERENCIA') transferencia += total;
+      else if (group.metodo_pago === 'CARGO_SOCIO') cargo_socio += total;
     });
 
-    divisionesPagadasTurno.forEach(div => {
-      const monto = Number(div.monto_proporcional);
-      const metodo = div.metodo_pago;
+    // Cuentas mixtas directas
+    const directasMixtas = await prisma.cuenta.aggregate({
+      _sum: { monto_efectivo: true, monto_tarjeta: true },
+      where: {
+        turno_id: turno.id,
+        estado: 'PAGADA',
+        metodo_pago: 'MIXTO',
+        divisionesCuentas: { none: {} }
+      }
+    });
+    efectivo += Number(directasMixtas._sum.monto_efectivo || 0);
+    tarjeta += Number(directasMixtas._sum.monto_tarjeta || 0);
 
-      if (metodo === 'EFECTIVO') efectivo += monto;
-      else if (metodo === 'TARJETA') tarjeta += monto;
-      else if (metodo === 'TRANSFERENCIA') transferencia += monto;
+    // 2. Agrupar divisiones por método de pago
+    const splitsPorMetodo = await prisma.divisionCuenta.groupBy({
+      by: ['metodo_pago'],
+      _sum: { monto_proporcional: true },
+      where: {
+        cuenta: {
+          turno_id: turno.id,
+          estado: 'PAGADA'
+        },
+        turno_pago_id: null
+      }
+    });
+
+    splitsPorMetodo.forEach(group => {
+      const total = Number(group._sum.monto_proporcional || 0);
+      if (group.metodo_pago === 'EFECTIVO') efectivo += total;
+      else if (group.metodo_pago === 'TARJETA') tarjeta += total;
+      else if (group.metodo_pago === 'TRANSFERENCIA') transferencia += total;
+      else if (group.metodo_pago === 'CARGO_SOCIO') cargo_socio += total;
+    });
+
+    // Divisiones mixtas inmediatas
+    const splitsMixtos = await prisma.divisionCuenta.aggregate({
+      _sum: { monto_efectivo: true, monto_tarjeta: true },
+      where: {
+        cuenta: {
+          turno_id: turno.id,
+          estado: 'PAGADA'
+        },
+        metodo_pago: 'MIXTO',
+        turno_pago_id: null
+      }
+    });
+    efectivo += Number(splitsMixtos._sum.monto_efectivo || 0);
+    tarjeta += Number(splitsMixtos._sum.monto_tarjeta || 0);
+
+    // 3. Sumar abonos de divisiones pagadas diferidas en este turno
+    const divisionesPagadasDiferidas = await prisma.divisionCuenta.groupBy({
+      by: ['metodo_pago'],
+      _sum: { monto_proporcional: true },
+      where: { turno_pago_id: turno.id }
+    });
+
+    divisionesPagadasDiferidas.forEach(group => {
+      const total = Number(group._sum.monto_proporcional || 0);
+      if (group.metodo_pago === 'EFECTIVO') efectivo += total;
+      else if (group.metodo_pago === 'TARJETA') tarjeta += total;
+      else if (group.metodo_pago === 'TRANSFERENCIA') transferencia += total;
+    });
+
+    // 4. Procesar retiros e ingresos de caja
+    const retirosIngresos = await prisma.retiroCaja.groupBy({
+      by: ['tipo'],
+      _sum: { monto: true },
+      where: { turno_id: turno.id }
+    });
+
+    retirosIngresos.forEach(group => {
+      const total = Number(group._sum.monto || 0);
+      if (group.tipo === 'RETIRO') {
+        efectivo -= total;
+      } else if (group.tipo === 'INGRESO' || group.tipo === 'DEPOSITO') {
+        efectivo += total;
+      }
     });
 
     return res.json({ efectivo, tarjeta, transferencia, cargo_socio });
@@ -1478,11 +1603,33 @@ export async function fusionarCuentas(req: AuthenticatedRequest, res: Response) 
 
     // 2. Transaccionar la fusión
     await prisma.$transaction(async (tx) => {
-      // Mover los detalles de la cuenta origen a la destino
-      await tx.detalleCuenta.updateMany({
-        where: { cuenta_id: cuentaOrigen.id },
-        data: { cuenta_id: cuentaDestino.id }
-      });
+      const areaOrigen = cuentaOrigen.area_id === 1 ? 'Bar' : cuentaOrigen.area_id === 2 ? 'Snack' : 'Palapa';
+      const areaDestino = cuentaDestino.area_id === 1 ? 'Bar' : cuentaDestino.area_id === 2 ? 'Snack' : 'Palapa';
+
+      // Etiquetar consumos de la cuenta destino con su área actual
+      for (const det of cuentaDestino.detalleCuentas) {
+        const tag = `(${areaDestino})`;
+        if (!det.notas || !det.notas.includes(tag)) {
+          const nuevaNota = det.notas ? `${det.notas} ${tag}` : tag;
+          await tx.detalleCuenta.update({
+            where: { id: det.id },
+            data: { notas: nuevaNota }
+          });
+        }
+      }
+
+      // Mover los detalles de la cuenta origen a la destino actualizando sus notas con la procedencia
+      for (const det of cuentaOrigen.detalleCuentas) {
+        const areaNota = `(${areaOrigen})`;
+        const notaLimpia = det.notas ? `${det.notas} ${areaNota}` : areaNota;
+        await tx.detalleCuenta.update({
+          where: { id: det.id },
+          data: {
+            cuenta_id: cuentaDestino.id,
+            notas: notaLimpia
+          }
+        });
+      }
 
       // Recalcular los totales de la cuenta destino
       // Todos los detalles de ambas cuentas (origen + destino) ahora pertenecen a destino en memoria
@@ -1500,15 +1647,22 @@ export async function fusionarCuentas(req: AuthenticatedRequest, res: Response) 
         }
       });
 
-      // Eliminar la cuenta origen
-      await tx.cuenta.delete({
-        where: { id: cuentaOrigen.id }
+      // Marcar la cuenta origen como fusionada
+      await tx.cuenta.update({
+        where: { id: cuentaOrigen.id },
+        data: {
+          estado: 'FUSIONADA',
+          subtotal: 0,
+          descuento: 0,
+          impuestos: 0,
+          total: 0
+        }
       });
     });
 
     const io = req.app.get('io');
     if (io) {
-      io.emit('cuenta:actualizada');
+      io.emit('cuenta:actualizar');
     }
 
     return res.json({ message: 'Cuentas fusionadas correctamente' });
@@ -1517,3 +1671,82 @@ export async function fusionarCuentas(req: AuthenticatedRequest, res: Response) 
     return res.status(500).json({ error: error.message || 'Error al fusionar cuentas' });
   }
 }
+
+// 21. Cambiar una cuenta de área (Bar, Snack, Palapa)
+export async function cambiarAreaCuenta(req: AuthenticatedRequest, res: Response) {
+  const cuentaId = parseInt(req.params.cuentaId);
+  const { area_id } = req.body;
+
+  if (!area_id) {
+    return res.status(400).json({ error: 'El área destino es requerida' });
+  }
+
+  try {
+    const nuevoAreaId = parseInt(area_id);
+
+    // 1. Obtener la cuenta
+    const cuenta = await prisma.cuenta.findUnique({
+      where: { id: cuentaId },
+      include: { divisionesCuentas: true }
+    });
+
+    if (!cuenta) {
+      return res.status(404).json({ error: 'Cuenta no encontrada' });
+    }
+
+    if (cuenta.area_id === nuevoAreaId) {
+      return res.status(400).json({ error: 'La cuenta ya pertenece al área seleccionada' });
+    }
+
+    // 2. Buscar si hay un turno activo en la nueva área
+    const turnoDestino = await prisma.turno.findFirst({
+      where: { activo: true, area_id: nuevoAreaId },
+      orderBy: { abierto_at: 'desc' }
+    });
+
+    if (!turnoDestino) {
+      return res.status(400).json({ error: 'No hay un turno activo abierto en la nueva área. Por favor, abre el turno primero.' });
+    }
+
+    // 3. Actualizar la cuenta y sus divisiones asociadas
+    await prisma.$transaction(async (tx) => {
+      // Actualizar área y turno en la cuenta
+      await tx.cuenta.update({
+        where: { id: cuentaId },
+        data: {
+          area_id: nuevoAreaId,
+          turno_id: turnoDestino.id
+        }
+      });
+
+      // Si tiene divisiones de cuenta y ya fueron cobradas en el turno anterior,
+      // actualizamos su turno_pago_id al nuevo turno activo para reubicar los ingresos
+      if (cuenta.divisionesCuentas.length > 0) {
+        await tx.divisionCuenta.updateMany({
+          where: {
+            cuenta_id: cuentaId,
+            OR: [
+              { turno_pago_id: cuenta.turno_id },
+              { turno_pago_id: null, estado_pago: 'PAGADO' }
+            ]
+          },
+          data: {
+            turno_pago_id: turnoDestino.id
+          }
+        });
+      }
+    });
+
+    // 4. Notificar cambios por WebSockets
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('cuenta:actualizar');
+    }
+
+    return res.json({ message: 'Cuenta trasladada al área seleccionada exitosamente' });
+  } catch (error: any) {
+    console.error('Error al cambiar de área la cuenta:', error);
+    return res.status(500).json({ error: error.message || 'Error al cambiar de área la cuenta' });
+  }
+}
+
