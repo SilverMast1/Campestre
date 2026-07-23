@@ -4,13 +4,18 @@ function getDatabaseUrl(): string {
   const fallbackUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:6543/postgres?sslmode=require&pgbouncer=true&connect_timeout=30';
   let url = process.env.DATABASE_URL || fallbackUrl;
   
+  // Corregir typo de mayúscula I por l en project ref de Supabase
+  if (url.includes('zdeenhvjtnxvIqdpsewj')) {
+    url = url.replace('zdeenhvjtnxvIqdpsewj', 'zdeenhvjtnxvlqdpsewj');
+  }
+
   // Limpiar corchetes accidentales si se pegaron en la variable de entorno
   if (url.includes('[') && url.includes(']')) {
     url = url.replace(/\[|\]/g, '');
   }
 
-  // Si es URL de Supabase, asegurar puerto 6543 (Pooler IPv4 para Serverless / Netlify)
-  if (url.includes('supabase.co')) {
+  // Si es Netlify o URL de Supabase, asegurar puerto 6543 (Pooler IPv4 para Serverless / Netlify)
+  if (process.env.NETLIFY === 'true' || url.includes('supabase.co')) {
     if (url.includes(':5432/')) {
       url = url.replace(':5432/', ':6543/');
     }
