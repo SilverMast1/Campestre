@@ -251,6 +251,7 @@ export default function CargosSociosView() {
         setLiquidarTodoSocio(null);
         setEsAbonoParcialModal(false);
         setMontoAbonoParcialModal('');
+        setDivisionesSeleccionadas([]);
         // Recargar datos principales
         cargarCargosSocios();
         // Mostrar aviso temporal de éxito

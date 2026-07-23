@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 function getDatabaseUrl(): string {
-  const fallbackUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:5432/postgres?sslmode=require&connect_timeout=30';
+  const fallbackUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:6543/postgres?sslmode=require&pgbouncer=true&connect_timeout=30';
   let url = process.env.DATABASE_URL || fallbackUrl;
   
   // Limpiar corchetes accidentales si se pegaron en la variable de entorno
@@ -9,10 +9,13 @@ function getDatabaseUrl(): string {
     url = url.replace(/\[|\]/g, '');
   }
 
-  // Si es URL de Supabase, asegurar puerto 5432 y sslmode=require
+  // Si es URL de Supabase, asegurar puerto 6543 (Pooler IPv4 para Serverless / Netlify)
   if (url.includes('supabase.co')) {
-    if (url.includes(':6543/')) {
-      url = url.replace(':6543/', ':5432/');
+    if (url.includes(':5432/')) {
+      url = url.replace(':5432/', ':6543/');
+    }
+    if (!url.includes('pgbouncer=')) {
+      url += (url.includes('?') ? '&' : '?') + 'pgbouncer=true';
     }
     if (!url.includes('sslmode=')) {
       url += (url.includes('?') ? '&' : '?') + 'sslmode=require&connect_timeout=30';

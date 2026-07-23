@@ -513,14 +513,6 @@ export default function POSView() {
     }
   }, [sociosSeleccionadosCadi, token]);
 
-  // Limpiar estados de deudas si el carrito se vacía
-  useEffect(() => {
-    if (cart.length === 0) {
-      setCargosSociosPanel({});
-      setLiquidarCargosPanel({});
-    }
-  }, [cart]);
-
   const cargarProductos = async (idArea: number) => {
     const cacheKey = `campestre_productos_${idArea}`;
     if (!navigator.onLine) {
@@ -1625,12 +1617,18 @@ export default function POSView() {
       }
 
       // Liquidar deudas seleccionadas en modo directo
-      for (const key of Object.keys(deudasSocios)) {
-        const clienteId = Number(key);
-        if (liquidarDeudaSocio[clienteId] && deudasSocios[clienteId]) {
-          const divisionesIds = deudasSocios[clienteId].divisiones.map((x: any) => x.division_id);
+      const todosClientesConDeuda = new Set<number>([
+        ...Object.keys(deudasSocios).map(Number),
+        ...Object.keys(cargosSociosPanel).map(Number)
+      ]);
+
+      for (const clienteId of Array.from(todosClientesConDeuda)) {
+        const estaMarcado = liquidarDeudaSocio[clienteId] || liquidarCargosPanel[clienteId];
+        const datosDeuda = deudasSocios[clienteId] || cargosSociosPanel[clienteId];
+        if (estaMarcado && datosDeuda && datosDeuda.divisiones && datosDeuda.divisiones.length > 0) {
+          const divisionesIds = datosDeuda.divisiones.map((x: any) => x.division_id || x.id);
           
-          let metodoLiquidar = metodoPagoDirecto;
+          let metodoLiquidar = metodosPagoLiquidacion[clienteId] || metodosPago[clienteId] || metodoPagoDirecto;
           if (metodoLiquidar === 'CARGO_SOCIO') {
             metodoLiquidar = 'EFECTIVO';
           } else if (metodoLiquidar === 'MIXTO') {
@@ -1653,6 +1651,7 @@ export default function POSView() {
           const dataLiq = await resLiq.json();
           if (!resLiq.ok) {
             console.error(`Error al liquidar cargos en modo directo:`, dataLiq.error);
+            throw new Error(dataLiq.error || 'Error al liquidar los adeudos del socio');
           }
         }
       }
@@ -1733,13 +1732,21 @@ export default function POSView() {
       }
 
       // Liquidar deudas seleccionadas
-      for (const d of splitPreview.divisiones) {
-        const clienteId = d.cliente_id;
-        if (liquidarCargosPanel[clienteId] && cargosSociosPanel[clienteId]) {
-          const divisiones = cargosSociosPanel[clienteId].divisiones || [];
-          const divisionesIds = divisiones.map((x: any) => x.division_id);
+      const sociosParaLiquidar = new Set<number>();
+      if (splitPreview && splitPreview.divisiones) {
+        splitPreview.divisiones.forEach((d: any) => sociosParaLiquidar.add(d.cliente_id));
+      }
+      Object.keys(liquidarCargosPanel).forEach(k => { if (liquidarCargosPanel[Number(k)]) sociosParaLiquidar.add(Number(k)); });
+      Object.keys(liquidarDeudaSocio).forEach(k => { if (liquidarDeudaSocio[Number(k)]) sociosParaLiquidar.add(Number(k)); });
+
+      for (const clienteId of Array.from(sociosParaLiquidar)) {
+        const estaMarcado = liquidarCargosPanel[clienteId] || liquidarDeudaSocio[clienteId];
+        const datosDeuda = cargosSociosPanel[clienteId] || deudasSocios[clienteId];
+
+        if (estaMarcado && datosDeuda && datosDeuda.divisiones && datosDeuda.divisiones.length > 0) {
+          const divisionesIds = datosDeuda.divisiones.map((x: any) => x.division_id || x.id);
           
-          let metodoLiquidar = metodosPago[clienteId];
+          let metodoLiquidar = metodosPagoLiquidacion[clienteId] || metodosPago[clienteId];
           if (!metodoLiquidar || metodoLiquidar === 'CARGO_SOCIO') {
             metodoLiquidar = metodoPagoAbono || 'EFECTIVO';
           } else if (metodoLiquidar === 'MIXTO') {
@@ -1747,24 +1754,23 @@ export default function POSView() {
             metodoLiquidar = cardAmt > 0 ? 'TARJETA' : 'EFECTIVO';
           }
 
-          if (divisionesIds.length > 0) {
-            const resLiq = await fetch(`/api/pos/socios/${clienteId}/cargos/liquidar`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                metodo_pago: metodoLiquidar,
-                divisionesIds,
-                area_id: areaId,
-              }),
-            });
-            
-            const dataLiq = await resLiq.json();
-            if (!resLiq.ok) {
-              console.error(`Error al liquidar cargos del socio ${d.nombre}:`, dataLiq.error);
-            }
+          const resLiq = await fetch(`/api/pos/socios/${clienteId}/cargos/liquidar`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              metodo_pago: metodoLiquidar,
+              divisionesIds,
+              area_id: areaId,
+            }),
+          });
+          
+          const dataLiq = await resLiq.json();
+          if (!resLiq.ok) {
+            console.error(`Error al liquidar cargos del socio ${clienteId}:`, dataLiq.error);
+            throw new Error(dataLiq.error || 'Error al liquidar los adeudos del socio');
           }
         }
       }
@@ -1928,22 +1934,19 @@ export default function POSView() {
 
   // Suma de adeudos que se van a cobrar en este momento (tanto en división como en directo)
   const totalAdeudosACobrar = (() => {
-    if (splitPreview && splitPreview.divisiones && splitPreview.divisiones.length > 0) {
-      return splitPreview.divisiones.reduce((sum: number, d: any) => {
-        if (liquidarDeudaSocio[d.cliente_id] && deudasSocios[d.cliente_id]) {
-          return sum + deudasSocios[d.cliente_id].total;
-        }
-        return sum;
-      }, 0);
-    } else {
-      return Object.keys(deudasSocios).reduce((sum: number, key: string) => {
-        const clienteId = Number(key);
-        if (liquidarDeudaSocio[clienteId] && deudasSocios[clienteId]) {
-          return sum + deudasSocios[clienteId].total;
-        }
-        return sum;
-      }, 0);
-    }
+    const clientesMarcados = new Set<number>([
+      ...Object.keys(liquidarCargosPanel).filter(k => liquidarCargosPanel[Number(k)]).map(Number),
+      ...Object.keys(liquidarDeudaSocio).filter(k => liquidarDeudaSocio[Number(k)]).map(Number)
+    ]);
+
+    let sum = 0;
+    clientesMarcados.forEach((clienteId) => {
+      const datosDeuda = cargosSociosPanel[clienteId] || deudasSocios[clienteId];
+      if (datosDeuda && datosDeuda.total) {
+        sum += datosDeuda.total;
+      }
+    });
+    return sum;
   })();
 
   // Filtrar cuentas pendientes según el buscador
@@ -1971,7 +1974,7 @@ export default function POSView() {
     );
   });
 
-  const totalMasAdeudos = splitPreview ? splitPreview.total + totalAdeudosACobrar : 0;
+  const totalMasAdeudos = (splitPreview ? splitPreview.total : totalLocal) + totalAdeudosACobrar;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 font-sans">
@@ -2966,10 +2969,11 @@ export default function POSView() {
                               <input
                                 type="checkbox"
                                 checked={estaMarcado}
-                                onChange={(e) => setLiquidarCargosPanel({
-                                  ...liquidarCargosPanel,
-                                  [clienteId]: e.target.checked
-                                })}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setLiquidarCargosPanel(prev => ({ ...prev, [clienteId]: val }));
+                                  setLiquidarDeudaSocio(prev => ({ ...prev, [clienteId]: val }));
+                                }}
                                 className="rounded border-slate-700 bg-slate-800 text-campestre-gold focus:ring-campestre-gold focus:ring-offset-0 w-4.5 h-4.5 cursor-pointer"
                               />
                               <div className="text-left">
@@ -3243,8 +3247,10 @@ export default function POSView() {
                               />
                             </div>
                             {(() => {
+                              const datosAdeudo = deudasSocios[d.cliente_id] || cargosSociosPanel[d.cliente_id];
+                              const estaCobrandoAdeudo = liquidarDeudaSocio[d.cliente_id] || liquidarCargosPanel[d.cliente_id];
                               const totalSocio = ((splitPreview.divisiones.length === 1 && abonoMonto !== '') ? Number(abonoMonto) : d.monto) + 
-                                (liquidarDeudaSocio[d.cliente_id] ? (deudasSocios[d.cliente_id]?.total || 0) : 0);
+                                (estaCobrandoAdeudo ? (datosAdeudo?.total || 0) : 0);
                               return (
                                 <>
                                   <div className="flex flex-wrap gap-1 mt-1">
@@ -3349,8 +3355,12 @@ export default function POSView() {
                               <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-350 hover:text-white font-medium select-none">
                                 <input
                                   type="checkbox"
-                                  checked={!!liquidarDeudaSocio[d.cliente_id]}
-                                  onChange={(e) => setLiquidarDeudaSocio({ ...liquidarDeudaSocio, [d.cliente_id]: e.target.checked })}
+                                  checked={!!(liquidarDeudaSocio[d.cliente_id] || liquidarCargosPanel[d.cliente_id])}
+                                  onChange={(e) => {
+                                    const val = e.target.checked;
+                                    setLiquidarDeudaSocio(prev => ({ ...prev, [d.cliente_id]: val }));
+                                    setLiquidarCargosPanel(prev => ({ ...prev, [d.cliente_id]: val }));
+                                  }}
                                   className="rounded border-slate-700 bg-slate-800 text-campestre-gold focus:ring-campestre-gold focus:ring-offset-0"
                                 />
                                 <span>Cobrar adeudo</span>
@@ -3700,8 +3710,12 @@ export default function POSView() {
                             <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-350 hover:text-white font-medium select-none">
                               <input
                                 type="checkbox"
-                                checked={!!liquidarDeudaSocio[clienteId]}
-                                onChange={(e) => setLiquidarDeudaSocio({ ...liquidarDeudaSocio, [clienteId]: e.target.checked })}
+                                checked={!!(liquidarDeudaSocio[clienteId] || liquidarCargosPanel[clienteId])}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setLiquidarDeudaSocio(prev => ({ ...prev, [clienteId]: val }));
+                                  setLiquidarCargosPanel(prev => ({ ...prev, [clienteId]: val }));
+                                }}
                                 className="rounded border-slate-700 bg-slate-800 text-campestre-gold focus:ring-campestre-gold focus:ring-offset-0"
                               />
                               <span>Cobrar adeudo</span>
