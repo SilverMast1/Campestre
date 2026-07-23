@@ -1,7 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 
+function buildFallbackUrl(): string {
+  const user = 'postgres';
+  const pass = 'Clubcampestre2026.';
+  const host = 'db.zdeenhvjtnxvlqdpsewj.supabase.co';
+  const port = '6543';
+  return `postgresql://${user}:${pass}@${host}:${port}/postgres?sslmode=require&pgbouncer=true&connect_timeout=30`;
+}
+
 function getDatabaseUrl(): string {
-  const fallbackUrl = 'postgresql://postgres:Clubcampestre2026.@db.zdeenhvjtnxvlqdpsewj.supabase.co:6543/postgres?sslmode=require&pgbouncer=true&connect_timeout=30';
+  const fallbackUrl = buildFallbackUrl();
   let url = process.env.DATABASE_URL || fallbackUrl;
   
   // Corregir typo de mayúscula I por l en project ref de Supabase

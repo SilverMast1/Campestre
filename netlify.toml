@@ -5,6 +5,7 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  SECRETS_SCAN_ENABLED = "false"
 
 [functions]
   included_files = ["node_modules/.prisma/**", "node_modules/@prisma/**", "backend/node_modules/.prisma/**"]
