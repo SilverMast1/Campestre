@@ -969,7 +969,6 @@ export default function POSView() {
   };
 
   const handlePagarCuentaDirecto = async (cuenta: any) => {
-    setCargando(true);
     setErrorMsg('');
     try {
       useStore.setState({
@@ -981,57 +980,61 @@ export default function POSView() {
       const sociosCta = cuenta.socios || [];
       setSociosSeleccionadosCadi(sociosCta);
 
-      const resSplit = await fetch(`/api/pos/cuentas/${cuenta.id}/split-preview`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const dataSplit = await resSplit.json();
-      
-      if (resSplit.ok) {
-        let finalSplit = dataSplit;
-        if (!dataSplit.split_automatico && sociosCta.length > 0) {
-          const totalVal = dataSplit.total;
-          const cantidad = sociosCta.length;
-          const montoBase = Math.round((totalVal / cantidad) * 100) / 100;
-          let totalDividido = montoBase * cantidad;
-          let residuo = Math.round((totalVal - totalDividido) * 100) / 100;
+      // ⚡ Cálculo local instantáneo (0ms de espera)
+      const totalVal = Number(cuenta.total || 0);
+      const cantidad = sociosCta.length || 1;
+      const montoBase = Math.round((totalVal / cantidad) * 100) / 100;
+      let totalDividido = montoBase * cantidad;
+      let residuo = Math.round((totalVal - totalDividido) * 100) / 100;
 
-          const divisiones = sociosCta.map((s: any, index: number) => {
-            let montoCliente = montoBase;
-            if (index === cantidad - 1 && residuo !== 0) {
-              montoCliente = Math.round((montoCliente + residuo) * 100) / 100;
-            }
-            return {
-              cliente_id: s.id,
-              nombre: s.nombre,
-              codigo_socio: s.codigo_socio,
-              porcentaje: 100 / cantidad,
-              monto: montoCliente,
-            };
-          });
-
-          finalSplit = {
-            split_automatico: true,
-            total: totalVal,
-            divisiones,
-          };
+      const divisiones = sociosCta.map((s: any, index: number) => {
+        let montoCliente = montoBase;
+        if (index === cantidad - 1 && residuo !== 0) {
+          montoCliente = Math.round((montoCliente + residuo) * 100) / 100;
         }
+        return {
+          cliente_id: s.id,
+          nombre: s.nombre,
+          codigo_socio: s.codigo_socio,
+          porcentaje: 100 / cantidad,
+          monto: montoCliente,
+        };
+      });
 
-        setSplitPreview(finalSplit);
-        const metodosIniciales: { [key: number]: string } = {};
-        finalSplit.divisiones.forEach((d: any) => {
-          metodosIniciales[d.cliente_id] = 'EFECTIVO';
-        });
-        setMetodosPago(metodosIniciales);
-        setMontoRecibidoSocio({});
-        setMetodoPagoDirecto('EFECTIVO');
-        setMostrarModalCobro(true);
-      } else {
-        throw new Error(dataSplit.error || 'Error al calcular la división');
+      const initialSplit = {
+        split_automatico: sociosCta.length > 0,
+        total: totalVal,
+        divisiones,
+      };
+
+      setSplitPreview(initialSplit);
+
+      const metodosIniciales: { [key: number]: string } = {};
+      divisiones.forEach((d: any) => {
+        metodosIniciales[d.cliente_id] = 'EFECTIVO';
+      });
+      setMetodosPago(metodosIniciales);
+      setMontoRecibidoSocio({});
+      setMetodoPagoDirecto('EFECTIVO');
+
+      // ⚡ ABRIR MODAL AL INSTANTE (0ms)
+      setMostrarModalCobro(true);
+
+      // Si tiene CADI, sincronizar split preview en segundo plano sin congelar la pantalla
+      if (cuenta.cadi_id) {
+        fetch(`/api/pos/cuentas/${cuenta.id}/split-preview`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(r => r.json())
+          .then(dataSplit => {
+            if (dataSplit && dataSplit.divisiones && dataSplit.divisiones.length > 0) {
+              setSplitPreview(dataSplit);
+            }
+          })
+          .catch(() => {});
       }
     } catch (error: any) {
       setErrorMsg(error.message);
-    } finally {
-      setCargando(false);
     }
   };
 
