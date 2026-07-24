@@ -4,8 +4,8 @@ function buildFallbackUrl(): string {
   const user = 'postgres';
   const pass = 'Clubcampestre2026.';
   const host = 'db.zdeenhvjtnxvlqdpsewj.supabase.co';
-  const port = '6543';
-  return `postgresql://${user}:${pass}@${host}:${port}/postgres?sslmode=require&pgbouncer=true&connection_limit=30&pool_timeout=60&connect_timeout=60`;
+  const port = '5432';
+  return `postgresql://${user}:${pass}@${host}:${port}/postgres?sslmode=require`;
 }
 
 function getDatabaseUrl(): string {
@@ -17,34 +17,14 @@ function getDatabaseUrl(): string {
     url = url.replace('zdeenhvjtnxvIqdpsewj', 'zdeenhvjtnxvlqdpsewj');
   }
 
-  // Limpiar corchetes accidentales si se pegaron en la variable de entorno
+  // Limpiar corchetes accidentales
   if (url.includes('[') && url.includes(']')) {
     url = url.replace(/\[|\]/g, '');
   }
 
-  // Si es Netlify, Railway u otra nube + URL de Supabase, asegurar puerto 6543 y parámetros de pooler
-  const isCloud = process.env.NETLIFY === 'true' || process.env.RAILWAY_ENVIRONMENT !== undefined || process.env.NODE_ENV === 'production';
-  if (isCloud || url.includes('supabase.co')) {
-    if (url.includes(':5432/')) {
-      url = url.replace(':5432/', ':6543/');
-    }
-    if (!url.includes('pgbouncer=')) {
-      url += (url.includes('?') ? '&' : '?') + 'pgbouncer=true';
-    }
-    if (!url.includes('sslmode=')) {
-      url += (url.includes('?') ? '&' : '?') + 'sslmode=require';
-    }
-    if (!url.includes('connection_limit=')) {
-      url += '&connection_limit=30';
-    }
-    if (!url.includes('pool_timeout=')) {
-      url += '&pool_timeout=60';
-    }
-    if (!url.includes('connect_timeout=')) {
-      url += '&connect_timeout=60';
-    }
-  } else if (!url.startsWith('file:')) {
-    url = fallbackUrl;
+  // Asegurar SSL mode para Supabase sin lock de pgbouncer
+  if (url.includes('supabase.co') && !url.includes('sslmode=')) {
+    url += (url.includes('?') ? '&' : '?') + 'sslmode=require';
   }
 
   return url;
