@@ -1568,7 +1568,7 @@ export default function AdminView() {
             <div className="flex flex-wrap gap-3 items-center text-[10px] text-slate-400 bg-slate-900/40 rounded-xl px-4 py-2.5 border border-slate-800">
               <span className="flex items-center gap-1"><Clock size={12} /> Abierto: <b className="text-white">{new Date(turnoData.turno.abierto_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</b></span>
               <span className="text-slate-700">•</span>
-              <span>Fondo inicial: <b className="text-white">${turnoData.turno.fondo_inicial.toFixed(2)}</b></span>
+              <span>Fondo inicial: <b className="text-white">${Number(turnoData.turno.fondo_inicial || 0).toFixed(2)}</b></span>
               <span className="text-slate-700">•</span>
               <span>Ventas registradas: <b className="text-white">{turnoData.ventas.length}</b></span>
             </div>
@@ -1577,31 +1577,31 @@ export default function AdminView() {
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="bg-slate-900/60 rounded-2xl border border-emerald-500/15 p-4 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1"><Banknote size={11} className="text-emerald-400" /> Efectivo Ventas</span>
-                <h4 className="text-xl font-extrabold text-emerald-400 mt-1">${turnoData.balances.efectivo.toFixed(2)}</h4>
+                <h4 className="text-xl font-extrabold text-emerald-400 mt-1">${Number(turnoData.balances.efectivo || 0).toFixed(2)}</h4>
                 <span className="text-[8px] text-slate-500 mt-0.5">Cobrado en efectivo este turno</span>
               </div>
               <div className="bg-slate-900/60 rounded-2xl border border-campestre-gold/20 p-4 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1"><DollarSign size={11} className="text-campestre-gold" /> Total en Caja</span>
-                <h4 className="text-xl font-extrabold text-campestre-gold mt-1">${turnoData.balances.total_caja_efectivo.toFixed(2)}</h4>
+                <h4 className="text-xl font-extrabold text-campestre-gold mt-1">${Number(turnoData.balances.total_caja_efectivo || 0).toFixed(2)}</h4>
                 <span className="text-[8px] text-slate-500 mt-0.5">
                   Fondo + ventas
-                  {turnoData.balances.total_ingresos > 0 && ` + ingresos ($${turnoData.balances.total_ingresos.toFixed(2)})`}
-                  {turnoData.balances.total_retiros > 0 && ` - retiros ($${turnoData.balances.total_retiros.toFixed(2)})`}
+                  {turnoData.balances.total_ingresos > 0 && ` + ingresos ($${Number(turnoData.balances.total_ingresos || 0).toFixed(2)})`}
+                  {turnoData.balances.total_retiros > 0 && ` - retiros ($${Number(turnoData.balances.total_retiros || 0).toFixed(2)})`}
                 </span>
               </div>
               <div className="bg-slate-900/60 rounded-2xl border border-blue-500/15 p-4 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1"><CreditCard size={11} className="text-blue-400" /> Tarjeta</span>
-                <h4 className="text-xl font-extrabold text-blue-400 mt-1">${turnoData.balances.tarjeta.toFixed(2)}</h4>
+                <h4 className="text-xl font-extrabold text-blue-400 mt-1">${Number(turnoData.balances.tarjeta || 0).toFixed(2)}</h4>
                 <span className="text-[8px] text-slate-500 mt-0.5">Cobrado con tarjeta</span>
               </div>
               <div className="bg-slate-900/60 rounded-2xl border border-cyan-500/15 p-4 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1"><Smartphone size={11} className="text-cyan-400" /> Transferencia</span>
-                <h4 className="text-xl font-extrabold text-cyan-400 mt-1">${(turnoData.balances.transferencia || 0).toFixed(2)}</h4>
+                <h4 className="text-xl font-extrabold text-cyan-400 mt-1">${Number(turnoData.balances.transferencia || 0).toFixed(2)}</h4>
                 <span className="text-[8px] text-slate-500 mt-0.5">Cobrado vía transferencia</span>
               </div>
               <div className="bg-slate-900/60 rounded-2xl border border-yellow-500/15 p-4 flex flex-col">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold flex items-center gap-1">⛳ Cargos Socios</span>
-                <h4 className="text-xl font-extrabold text-yellow-400 mt-1">${turnoData.balances.cargo_socio.toFixed(2)}</h4>
+                <h4 className="text-xl font-extrabold text-yellow-400 mt-1">${Number(turnoData.balances.cargo_socio || 0).toFixed(2)}</h4>
                 <span className="text-[8px] text-slate-500 mt-0.5">Cuentas por cobrar</span>
               </div>
             </div>

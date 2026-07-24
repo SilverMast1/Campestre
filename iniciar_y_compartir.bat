@@ -15,18 +15,23 @@ echo.
 :: 2. Asegurar que Docker esté arriba (Desactivado: Se usa SQLite)
 :: echo [2/3] Levantando base de datos en Docker...
 :: call npm run db:up
-echo [2/3] Usando base de datos SQLite (local)...
+echo [2/3] Usando base de datos Supabase (PostgreSQL en la nube)...
 echo.
 
-:: 3. Iniciar el servidor local y el túnel público
-echo [3/3] Iniciando servidores y creando enlace publico...
+:: 3. Iniciar el servidor local y abrir el navegador
+echo [3/3] Iniciando servidores (Backend :3001 + Frontend :3000)...
 echo.
 echo ===================================================
-echo El sistema estara disponible localmente y publicamente.
-echo Copia el enlace "url:" de localtunnel que aparecera abajo.
+echo  Local:   http://localhost:3000
+echo  Publico: https://vcm5ts91-3000.usw3.devtunnels.ms/
+echo  Presiona CTRL+C para detener los servidores.
 echo ===================================================
 echo.
 
-call npx concurrently "npm run dev" "npx localtunnel --port 3000 --local-host 127.0.0.1 --subdomain campestre-pos-club"
+:: Esperar 6 segundos a que arranquen los servidores y abrir en Edge
+start /b cmd /c "ping 127.0.0.1 -n 7 > nul && start msedge http://localhost:3000 && start msedge https://vcm5ts91-3000.usw3.devtunnels.ms/"
+
+:: Arrancar backend y frontend en paralelo
+call npm run dev
 
 pause

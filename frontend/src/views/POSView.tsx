@@ -1739,13 +1739,14 @@ export default function POSView() {
       Object.keys(liquidarCargosPanel).forEach(k => { if (liquidarCargosPanel[Number(k)]) sociosParaLiquidar.add(Number(k)); });
       Object.keys(liquidarDeudaSocio).forEach(k => { if (liquidarDeudaSocio[Number(k)]) sociosParaLiquidar.add(Number(k)); });
 
-      for (const clienteId of Array.from(sociosParaLiquidar)) {
+      // Liquidar adeudos en paralelo (evita N round-trips secuenciales por el túnel)
+      const liquidacionPromesas = Array.from(sociosParaLiquidar).map(async (clienteId) => {
         const estaMarcado = liquidarCargosPanel[clienteId] || liquidarDeudaSocio[clienteId];
         const datosDeuda = cargosSociosPanel[clienteId] || deudasSocios[clienteId];
 
         if (estaMarcado && datosDeuda && datosDeuda.divisiones && datosDeuda.divisiones.length > 0) {
           const divisionesIds = datosDeuda.divisiones.map((x: any) => x.division_id || x.id);
-          
+
           let metodoLiquidar = metodosPagoLiquidacion[clienteId] || metodosPago[clienteId];
           if (!metodoLiquidar || metodoLiquidar === 'CARGO_SOCIO') {
             metodoLiquidar = metodoPagoAbono || 'EFECTIVO';
@@ -1766,14 +1767,16 @@ export default function POSView() {
               area_id: areaId,
             }),
           });
-          
+
           const dataLiq = await resLiq.json();
           if (!resLiq.ok) {
             console.error(`Error al liquidar cargos del socio ${clienteId}:`, dataLiq.error);
             throw new Error(dataLiq.error || 'Error al liquidar los adeudos del socio');
           }
         }
-      }
+      });
+
+      await Promise.all(liquidacionPromesas);
 
       setDatosUltimoTicket((prev: any) => {
         if (prev) {

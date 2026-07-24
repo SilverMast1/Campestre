@@ -57,18 +57,62 @@ export async function obtenerTurnoActivo(req: AuthenticatedRequest, res: Respons
   try {
     const turno = await prisma.turno.findFirst({
       where: { activo: true, ...(area_id ? { area_id: Number(area_id) } : {}) },
-      include: {
+      select: {
+        id: true,
+        activo: true,
+        fondo_inicial: true,
+        abierto_at: true,
+        area_id: true,
+        usuario_id: true,
+        caja_efectivo: true,
+        caja_tarjeta: true,
+        caja_cargos: true,
+        caja_transferencia: true,
+        cerrado_at: true,
+        retiros: true,
         cuentas: {
           where: { estado: 'PAGADA' },
-          include: {
+          select: {
+            id: true,
+            total: true,
+            metodo_pago: true,
+            monto_efectivo: true,
+            monto_tarjeta: true,
+            nombre_referencia: true,
+            created_at: true,
+            closed_at: true,
+            area_id: true,
+            usuario_id: true,
+            descuento: true,
+            cadi_id: true,
             usuario: { select: { nombre: true } },
-            detalleCuentas: { include: { producto: true } },
-            divisionesCuentas: { include: { cliente: true } },
+            detalleCuentas: {
+              select: {
+                cantidad: true,
+                precio_unitario: true,
+                subtotal: true,
+                notas: true,
+                producto: { select: { id: true, nombre: true, categoria: true } },
+              },
+            },
+            divisionesCuentas: {
+              select: {
+                id: true,
+                cliente_id: true,
+                monto_proporcional: true,
+                metodo_pago: true,
+                estado_pago: true,
+                turno_pago_id: true,
+                monto_efectivo: true,
+                monto_tarjeta: true,
+                cliente: { select: { id: true, nombre: true, codigo_socio: true } },
+              },
+            },
           },
         },
-        retiros: true,
       },
     });
+
 
     if (!turno) {
       return res.json({ activo: false });

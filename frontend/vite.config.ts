@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
-    allowedHosts: ['.loca.lt'],
+    allowedHosts: true,
     hmr: {
       protocol: 'wss',
       clientPort: 443,
@@ -19,6 +19,8 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:3001',
         changeOrigin: true,
+        timeout: 30000,
+        proxyTimeout: 30000,
       },
       '/socket.io': {
         target: 'http://127.0.0.1:3001',

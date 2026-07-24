@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { Decimal } from 'decimal.js';
 import prisma from '../db';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { getCache, setCache, invalidateCache } from '../cache';
 
 // 1. Obtener productos y stock de un área específica (Bar, Snack, Palapa)
 
@@ -117,6 +118,13 @@ export async function listarProductosPorArea(req: AuthenticatedRequest, res: Res
     return res.status(400).json({ error: 'ID de área inválido' });
   }
 
+  // Servir desde caché si está disponible (TTL 90 segundos)
+  const cacheKey = `productos:${areaId}`;
+  const cached = getCache<any[]>(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   try {
     const productosConStock = await prisma.inventarioArea.findMany({
       where: { area_id: areaId, producto: { activo: true } },
@@ -144,6 +152,7 @@ export async function listarProductosPorArea(req: AuthenticatedRequest, res: Res
       ubicacion_estante: inv.ubicacion_estante,
     }));
 
+    setCache(cacheKey, productos, 90);
     return res.json(productos);
   } catch (error) {
     console.error('Error al listar productos por área:', error);
@@ -811,6 +820,9 @@ export async function ajustarStockArea(req: AuthenticatedRequest, res: Response)
       io.emit('inventario:actualizar');
     }
 
+    // Invalidar caché de productos de esta área
+    invalidateCache('productos');
+
     return res.json({
       message: 'Stock y datos de producto ajustados con éxito',
       producto: resultado.producto.nombre,
@@ -836,10 +848,12 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
   try {
     const { solo_turno_activo } = req.query;
     let whereClause: any = {};
+    let takeLimit: number | undefined = undefined;
 
     if (solo_turno_activo === 'true') {
       const turnosActivos = await prisma.turno.findMany({
         where: { activo: true },
+        select: { id: true, abierto_at: true },
       });
 
       const turnosValidos = turnosActivos.filter(t => esMismoDia(new Date(), new Date(t.abierto_at)));
@@ -849,26 +863,60 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
       }
 
       whereClause.turno_id = { in: turnosValidos.map(t => t.id) };
+    } else {
+      // Sin filtro de turno: limitar a las 200 más recientes para no cargar toda la historia
+      takeLimit = 200;
     }
 
     const cuentas = await prisma.cuenta.findMany({
       where: whereClause,
-      include: {
-        area: true,
+      take: takeLimit,
+      select: {
+        id: true,
+        nombre_referencia: true,
+        estado: true,
+        total: true,
+        metodo_pago: true,
+        created_at: true,
+        closed_at: true,
+        usuario_id: true,
+        cadi_id: true,
+        area: { select: { id: true, nombre: true } },
         usuario: { select: { nombre: true } },
         cadi: {
-          include: {
+          select: {
+            numero_cadi: true,
+            nombre: true,
             asignaciones: {
               where: { activa: true },
-              include: {
-                cliente: true,
+              select: {
+                cliente: {
+                  select: { id: true, nombre: true, codigo_socio: true, email: true },
+                },
               },
             },
           },
         },
-        cliente: true,
-        detalleCuentas: { include: { producto: true } },
-        divisionesCuentas: { include: { cliente: { select: { id: true, nombre: true, codigo_socio: true } } } },
+        cliente: { select: { id: true, nombre: true, codigo_socio: true, email: true } },
+        detalleCuentas: {
+          select: {
+            id: true,
+            cantidad: true,
+            precio_unitario: true,
+            subtotal: true,
+            notas: true,
+            created_at: true,
+            producto: { select: { id: true, nombre: true, categoria: true } },
+          },
+        },
+        divisionesCuentas: {
+          select: {
+            monto_proporcional: true,
+            metodo_pago: true,
+            estado_pago: true,
+            cliente: { select: { nombre: true, codigo_socio: true } },
+          },
+        },
       },
       orderBy: { created_at: 'desc' },
     });
@@ -887,7 +935,7 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
       atendido_por: c.usuario.nombre,
       cadi_id: c.cadi_id,
       cadi: c.cadi ? `${c.cadi.numero_cadi} - ${c.cadi.nombre}` : null,
-      socios: c.cadi 
+      socios: c.cadi
         ? c.cadi.asignaciones.map((a) => ({
             id: a.cliente.id,
             nombre: a.cliente.nombre,
@@ -921,6 +969,7 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
     }));
 
     return res.json(resultado);
+
   } catch (error) {
     console.error('Error al listar cuentas:', error);
     return res.status(500).json({ error: 'Error al consultar cuentas' });
@@ -1032,6 +1081,15 @@ export async function crearProducto(req: AuthenticatedRequest, res: Response) {
 
       return nuevo;
     });
+
+    // Emitir actualización por WebSocket a todos los terminales POS conectados
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('inventario:actualizar');
+    }
+
+    // Invalidar caché de productos para todas las áreas
+    invalidateCache('productos');
 
     return res.status(201).json({
       message: `Producto "${producto.nombre}" creado exitosamente`,
@@ -1386,6 +1444,9 @@ export async function transferirStock(req: AuthenticatedRequest, res: Response) 
       io.emit('inventario:actualizar');
     }
 
+    // Invalidar caché de productos de ambas áreas
+    invalidateCache('productos');
+
     return res.json({
       message: `Traspaso de stock de "${result.producto}" realizado con éxito`,
       nuevo_stock_origen: result.nuevoStockOrigen,
@@ -1399,6 +1460,9 @@ export async function transferirStock(req: AuthenticatedRequest, res: Response) 
 
 // 14. Listar todos los productos sin importar el área (para administración y recetas)
 export async function listarTodosLosProductos(req: AuthenticatedRequest, res: Response) {
+  const cached = getCache<any[]>('productos_todos');
+  if (cached) return res.json(cached);
+
   try {
     const productos = await prisma.producto.findMany({
       where: { activo: true },
@@ -1414,6 +1478,7 @@ export async function listarTodosLosProductos(req: AuthenticatedRequest, res: Re
       activo: p.activo,
     }));
 
+    setCache('productos_todos', resultado, 90);
     return res.json(resultado);
   } catch (error) {
     console.error('Error al listar todos los productos:', error);
@@ -1563,6 +1628,9 @@ export async function eliminarProducto(req: AuthenticatedRequest, res: Response)
     if (io) {
       io.emit('inventario:actualizar');
     }
+
+    // Invalidar caché de productos para todas las áreas
+    invalidateCache('productos');
 
     return res.json({ message: 'Producto eliminado correctamente' });
   } catch (error: any) {

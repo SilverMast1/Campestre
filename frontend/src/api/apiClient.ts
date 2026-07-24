@@ -1,9 +1,18 @@
 import axios from 'axios';
 
+const getBaseUrl = () => {
+  const envUrl = (import.meta as any).env?.VITE_API_URL;
+  if (envUrl) return envUrl;
+  return '';
+};
+
 const apiClient = axios.create({
-  baseURL: '',
+  baseURL: getBaseUrl(),
+  timeout: 25000, // 25s para tolerar latencia del túnel
   headers: {
     'Content-Type': 'application/json',
+    'bypass-tunnel-reminder': 'true',
+    'X-Tunnel-Skip-AntiPhishing-Page': 'true',
   },
 });
 
@@ -29,18 +38,31 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Interceptor para manejar errores comunes (ej: desloguear si el token expira)
+// Interceptor para manejar errores comunes (ej: desloguear si el token expira) y reintentar si la red/túnel falla
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const { config } = error;
+    if (config && !config._isRetry) {
+      config._retryCount = config._retryCount || 0;
+      const isNetworkError = !error.response || error.code === 'ERR_NETWORK' || error.message?.includes('Network Error');
+      const isTunnelError = error.response && [502, 503, 504].includes(error.response.status);
+
+      if ((isNetworkError || isTunnelError) && config._retryCount < 3) {
+        config._retryCount += 1;
+        const delay = config._retryCount * 1000;
+        console.warn(`[Axios Reintento] Reintentando petición (${config._retryCount}/3) a ${config.url} en ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return apiClient(config);
+      }
+    }
+
     if (error.response && error.response.status === 401) {
       console.warn('Sesión expirada o no autorizada. Redirigiendo a Login...');
-      // Limpiar sesión local del store de manera simple
       localStorage.removeItem('campestre_token');
       localStorage.removeItem('campestre_user_type');
       localStorage.removeItem('campestre_user');
       localStorage.removeItem('campestre_socio');
-      // Recargar la página limpia el estado de Zustand
       if (typeof window !== 'undefined') {
         window.location.reload();
       }

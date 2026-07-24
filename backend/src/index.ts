@@ -48,7 +48,9 @@ const isOriginAllowed = (origin: string): boolean => {
     if (
       hostname.endsWith('.github.dev') ||
       hostname.endsWith('.app.github.dev') ||
+      hostname.endsWith('.devtunnels.ms') ||
       hostname.endsWith('.loca.lt') ||
+      hostname.endsWith('.ngrok-free.app') ||
       hostname.endsWith('.netlify.app') ||
       hostname.endsWith('.onrender.com') ||
       hostname.endsWith('.vercel.app')
@@ -76,6 +78,13 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(idempotency);
+
+// ==========================================
+// HEALTH CHECK (Railway / producción)
+// ==========================================
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // ==========================================
 // RUTAS DEL API

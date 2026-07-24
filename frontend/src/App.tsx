@@ -12,6 +12,8 @@ const VentasTurnoView = lazy(() => import('./views/VentasTurnoView'));
 import { Shield, Users, LogOut, Menu, UserCheck, Lock, Fingerprint, CheckCircle2, RefreshCw, Sun, Moon } from 'lucide-react';
 import Logo from './components/Logo';
 
+import { getOfflineQueue, syncOfflineQueue } from './api/offlineQueue';
+
 function App() {
   const { token, userType, user, socio, logout, setSession, tema, toggleTema, currentView, setCurrentView } = useStore();
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -33,6 +35,27 @@ function App() {
   const [codigoEmpleado, setCodigoEmpleado] = useState('');
   const [asistenciaStatus, setAsistenciaStatus] = useState<'idle' | 'scanning' | 'success'>('idle');
   const [asistenciaMsg, setAsistenciaMsg] = useState('');
+
+  // Keep-Alive Heartbeat: Ping continuo a /health cada 15 segundos para que el túnel de VS Code / GitHub nunca se inactive por falta de tráfico
+  React.useEffect(() => {
+    const keepAlivePing = async () => {
+      try {
+        const res = await fetch('/health');
+        if (res.ok) {
+          const queue = getOfflineQueue();
+          if (queue.length > 0) {
+            await syncOfflineQueue();
+          }
+        }
+      } catch (err) {
+        // Ignorar errores temporales si la red/túnel parpadea
+      }
+    };
+
+    keepAlivePing();
+    const interval = setInterval(keepAlivePing, 30000); // Ping cada 30 segundos (más espacio pero seguro)
+    return () => clearInterval(interval);
+  }, []);
 
   React.useEffect(() => {
     const handleLocationChange = () => {

@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../db';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { invalidateCache } from '../cache';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'campestre_jwt_secret_token_key_2026_super_strong';
 
@@ -161,6 +162,7 @@ export async function crearClientePorStaff(req: AuthenticatedRequest, res: Respo
       },
     });
 
+    invalidateCache('socios');
     return res.status(201).json({
       message: 'Socio registrado con éxito en el sistema',
       cliente: {

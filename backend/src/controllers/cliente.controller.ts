@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Decimal } from 'decimal.js';
 import prisma from '../db';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { getCache, setCache, invalidateCache } from '../cache';
 
 // 1. Obtener datos de perfil del socio autenticado
 export async function obtenerPerfilSocio(req: AuthenticatedRequest, res: Response) {
@@ -201,6 +202,7 @@ export async function eliminarSocio(req: AuthenticatedRequest, res: Response) {
       await tx.cuenta.updateMany({ where: { cliente_id: socioId }, data: { cliente_id: null } });
       await tx.cliente.delete({ where: { id: socioId } });
     });
+    invalidateCache('socios');
     return res.json({ message: 'Socio eliminado correctamente' });
   } catch (error: any) {
     console.error('Error al eliminar socio:', error);
@@ -236,12 +238,16 @@ export async function actualizarSocio(req: AuthenticatedRequest, res: Response) 
 
 // 7. Listar todos los socios (Admin y Vendedor)
 export async function listarSocios(req: AuthenticatedRequest, res: Response) {
+  const cached = getCache<any[]>('socios_lista');
+  if (cached) return res.json(cached);
+
   try {
     const socios = await prisma.cliente.findMany({
       where: { activo: true },
       select: { id: true, codigo_socio: true, nombre: true, email: true, telefono: true, created_at: true },
       orderBy: { nombre: 'asc' },
     });
+    setCache('socios_lista', socios, 60);
     return res.json(socios);
   } catch (error) {
     console.error('Error al listar socios:', error);
@@ -251,6 +257,9 @@ export async function listarSocios(req: AuthenticatedRequest, res: Response) {
 
 // 8. Listar socios con cargos pendientes (deudas)
 export async function listarCargosSocios(req: AuthenticatedRequest, res: Response) {
+  const cached = getCache<any[]>('socios_cargos');
+  if (cached) return res.json(cached);
+
   try {
     const sociosConCargos = await prisma.cliente.findMany({
       where: {
@@ -288,6 +297,7 @@ export async function listarCargosSocios(req: AuthenticatedRequest, res: Respons
       })
       .filter((s) => s.saldo_pendiente > 0);
 
+    setCache('socios_cargos', resultado, 30);
     return res.json(resultado);
   } catch (error) {
     console.error('Error al listar cargos de socios:', error);
@@ -488,6 +498,9 @@ export async function liquidarCargosSocio(req: AuthenticatedRequest, res: Respon
       io.emit('cuenta:actualizar');
     }
 
+    // Invalidar caché de cargos para que la lista se actualice inmediatamente
+    invalidateCache('socios_cargos');
+
     return res.json({
       message: esAbonoParcial ? 'Abono a deuda registrado correctamente' : 'Cargos liquidados correctamente',
       cargos_actualizados: divisiones.length,
@@ -534,6 +547,9 @@ export async function borrarCargosSocio(req: AuthenticatedRequest, res: Response
     if (io) {
       io.emit('cuenta:actualizar');
     }
+
+    // Invalidar caché de cargos para que la lista se actualice inmediatamente
+    invalidateCache('socios_cargos');
 
     return res.json({
       message: 'Adeudos borrados correctamente. La compra permanece registrada y el stock no se altera.',
