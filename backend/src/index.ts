@@ -233,8 +233,9 @@ app.set('io', io);
 // Arrancar servidor
 async function startServer() {
   await optimizarSQLite();
-  server.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Servidor backend corriendo en el puerto ${PORT}`);
+  const host = process.env.IP || '::';
+  server.listen(Number(PORT), host, () => {
+    console.log(`Servidor backend corriendo en http://${host}:${PORT}`);
   });
 }
 
