@@ -1776,8 +1776,6 @@ export default function POSView() {
         }
       });
 
-      await Promise.all(liquidacionPromesas);
-
       setDatosUltimoTicket((prev: any) => {
         if (prev) {
           return {
@@ -1787,10 +1785,17 @@ export default function POSView() {
         }
         return prev;
       });
+
+      // Mostrar pantalla de éxito INMEDIATAMENTE (respuesta en <1s)
       setPagoExitoso(true);
+      setCargando(false);
+
+      // Liquidar adeudos secundarios en segundo plano sin congelar la pantalla
+      Promise.all(liquidacionPromesas).catch(err => {
+        console.error('Error secundario en liquidacion de adeudos:', err);
+      });
     } catch (err: any) {
       setErrorMsg(err.message);
-    } finally {
       setCargando(false);
     }
   };
