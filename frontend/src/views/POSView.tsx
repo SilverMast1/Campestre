@@ -314,7 +314,9 @@ export default function POSView() {
   const [busquedaSocioRonda, setBusquedaSocioRonda] = useState('');
   const [resultadosSocioRonda, setResultadosSocioRonda] = useState<any[]>([]);
 
-  // Estados para mezclador
+  // Estados para mezclador / Prep ($0)
+  const [mostrarModalPrep, setMostrarModalPrep] = useState(false);
+  const [busquedaPrep, setBusquedaPrep] = useState('');
   const [mostrarModalMezclador, setMostrarModalMezclador] = useState(false);
   const [productoPreparadoSeleccionado, setProductoPreparadoSeleccionado] = useState<any | null>(null);
   const [busquedaMezclador, setBusquedaMezclador] = useState('');
@@ -1803,6 +1805,19 @@ export default function POSView() {
     }
   };
 
+  const handleAgregarProductoPrep = (prod: any) => {
+    const itemPrep = {
+      ...prod,
+      id: `${prod.id}-prep-${Date.now()}`,
+      nombre: `${prod.nombre} (Prep)`,
+      precio_venta: 0,
+      precio_unitario: 0,
+    };
+    handleAgregarAlCarrito(itemPrep);
+    setMostrarModalPrep(false);
+    setBusquedaPrep('');
+  };
+
   const handleAgregarProductoAlCarrito = (prod: any, e?: React.MouseEvent) => {
     let productoAMapear = prod;
     const nombreLower = prod.nombre.toLowerCase().trim();
@@ -1818,9 +1833,6 @@ export default function POSView() {
       const conPapas = productos.find(p => p.nombre.toLowerCase().trim() === 'boneless con papas');
       if (conPapas) productoAMapear = conPapas;
     }
-
-    const nombreAMapearLower = productoAMapear.nombre.toLowerCase();
-    const esPreparada = nombreAMapearLower.includes('prep') || nombreAMapearLower.includes('clamato');
     
     if (e) {
       const x = e.clientX;
@@ -1832,13 +1844,7 @@ export default function POSView() {
       }, 850);
     }
 
-    if (esPreparada) {
-      setProductoPreparadoSeleccionado(productoAMapear);
-      setBusquedaMezclador('');
-      setMostrarModalMezclador(true);
-    } else {
-      handleAgregarAlCarrito(productoAMapear);
-    }
+    handleAgregarAlCarrito(productoAMapear);
   };
 
   const handleSeleccionarMezclador = (mezclador: any) => {
@@ -2202,6 +2208,13 @@ export default function POSView() {
 
             {/* Mini-menús (Categorías) */}
             <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+              <button
+                type="button"
+                onClick={() => { setBusquedaPrep(''); setMostrarModalPrep(true); }}
+                className="px-4 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-all flex items-center gap-1.5 shadow-sm"
+              >
+                ✨ Prep ($0)
+              </button>
               <button
                 onClick={() => setCategoriaSeleccionada('TODOS')}
                 className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all duration-200 ${
@@ -3894,6 +3907,70 @@ export default function POSView() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL PREPARACIÓN PREP ($0) --- */}
+      {mostrarModalPrep && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  ✨ Descontar de Inventario a $0 (Prep)
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Selecciona cualquier producto para agregarlo a la cuenta a $0.00 pesos y descontarlo del inventario.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarModalPrep(false)}
+                className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
+                <Search size={14} />
+              </span>
+              <input
+                type="text"
+                placeholder="Buscar producto para Prep ($0)..."
+                value={busquedaPrep}
+                onChange={(e) => setBusquedaPrep(e.target.value)}
+                className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+              />
+            </div>
+
+            <div className="overflow-y-auto max-h-[420px] grid grid-cols-2 sm:grid-cols-3 gap-3 pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+              {productos
+                .filter(p => p.nombre.toLowerCase().includes(busquedaPrep.toLowerCase().trim()))
+                .map(prod => (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    onClick={() => handleAgregarProductoPrep(prod)}
+                    className="bg-slate-950/60 hover:bg-amber-500/10 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-3 text-left transition-all group flex flex-col justify-between space-y-2"
+                  >
+                    <div>
+                      <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider block mb-1">
+                        Prep $0
+                      </span>
+                      <h5 className="text-xs font-bold text-white group-hover:text-amber-300 leading-tight">
+                        {prod.nombre}
+                      </h5>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-slate-800/60 text-[10px]">
+                      <span className="text-slate-500 line-through">${Number(prod.precio_venta).toFixed(2)}</span>
+                      <span className="font-extrabold text-amber-400">$0.00</span>
+                    </div>
+                  </button>
+                ))}
+            </div>
           </div>
         </div>
       )}
