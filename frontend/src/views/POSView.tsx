@@ -748,7 +748,7 @@ export default function POSView() {
       return;
     }
     try {
-      const res = await fetch('/api/admin/cuentas?solo_turno_activo=true', {
+      const res = await fetch('/api/admin/cuentas', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

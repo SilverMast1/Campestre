@@ -8,7 +8,24 @@ import path from 'path';
 // Cargar variables de entorno
 dotenv.config();
 
-import { optimizarSQLite } from './db';
+import fs from 'fs';
+import { execSync } from 'child_process';
+
+// Auto-extraer actualización dist.zip en Alwaysdata si existe
+try {
+  const zipPath = path.resolve(__dirname, '../../dist.zip');
+  const targetDir = path.resolve(__dirname, '../');
+  if (fs.existsSync(zipPath)) {
+    console.log('[Alwaysdata Deploy] Extrayendo dist.zip...');
+    execSync(`unzip -o "${zipPath}" -d "${targetDir}"`, { stdio: 'inherit' });
+    try { fs.unlinkSync(zipPath); } catch (e) {}
+    console.log('[Alwaysdata Deploy] dist.zip extraído con éxito.');
+  }
+} catch (err) {
+  console.error('[Alwaysdata Deploy] Error al desempaquetar dist.zip:', err);
+}
+
+import { optimizarSQLite, prisma } from './db';
 import { authenticateJWT, requireRoles } from './middlewares/auth.middleware';
 import { idempotency } from './middlewares/idempotency.middleware';
 import { loginInterno, loginCliente, crearClientePorStaff, buscarSociosPublico, listarUsuarios, crearUsuarioInterno, cambiarPasswordUsuario, toggleActivoUsuario, actualizarUsuarioInterno } from './controllers/auth.controller';
@@ -80,6 +97,23 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(idempotency);
+
+app.get('/api/test-turnos', async (req: any, res: any) => {
+  try {
+    const turnos = await prisma.turno.findMany({ where: { activo: true } });
+    const cuentasAbiertas = await prisma.cuenta.findMany({ where: { estado: 'ABIERTA' } });
+    const dbUrl = process.env.DATABASE_URL || 'FALLBACK';
+    res.json({
+      dbUrlHost: dbUrl.split('@')[1] || dbUrl,
+      turnosActivosCount: turnos.length,
+      turnos,
+      cuentasAbiertasCount: cuentasAbiertas.length,
+      sampleAbiertas: cuentasAbiertas.slice(0, 5)
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ==========================================
 // HEALTH CHECK (Railway / producción)

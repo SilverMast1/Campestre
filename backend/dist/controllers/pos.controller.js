@@ -833,13 +833,15 @@ async function listarTodasLasCuentas(req, res) {
             const idsTurnosActivos = turnosActivos.map(t => t.id);
             // Cuentas abiertas SIEMPRE deben ser visibles para cobro, más las del turno activo
             if (idsTurnosActivos.length > 0) {
-                whereClause.OR = [
-                    { estado: 'ABIERTA' },
-                    { turno_id: { in: idsTurnosActivos } },
-                ];
+                whereClause = {
+                    OR: [
+                        { estado: 'ABIERTA' },
+                        { turno_id: { in: idsTurnosActivos } },
+                    ],
+                };
             }
             else {
-                whereClause.estado = 'ABIERTA';
+                whereClause = { estado: 'ABIERTA' };
             }
         }
         else {

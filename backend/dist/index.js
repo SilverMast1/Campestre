@@ -12,6 +12,25 @@ const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
 // Cargar variables de entorno
 dotenv_1.default.config();
+const fs_1 = __importDefault(require("fs"));
+const child_process_1 = require("child_process");
+// Auto-extraer actualización dist.zip en Alwaysdata si existe
+try {
+    const zipPath = path_1.default.resolve(__dirname, '../../dist.zip');
+    const targetDir = path_1.default.resolve(__dirname, '../');
+    if (fs_1.default.existsSync(zipPath)) {
+        console.log('[Alwaysdata Deploy] Extrayendo dist.zip...');
+        (0, child_process_1.execSync)(`unzip -o "${zipPath}" -d "${targetDir}"`, { stdio: 'inherit' });
+        try {
+            fs_1.default.unlinkSync(zipPath);
+        }
+        catch (e) { }
+        console.log('[Alwaysdata Deploy] dist.zip extraído con éxito.');
+    }
+}
+catch (err) {
+    console.error('[Alwaysdata Deploy] Error al desempaquetar dist.zip:', err);
+}
 const db_1 = require("./db");
 const auth_middleware_1 = require("./middlewares/auth.middleware");
 const idempotency_middleware_1 = require("./middlewares/idempotency.middleware");
@@ -80,6 +99,23 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json());
 app.use(idempotency_middleware_1.idempotency);
+app.get('/api/test-turnos', async (req, res) => {
+    try {
+        const turnos = await db_1.prisma.turno.findMany({ where: { activo: true } });
+        const cuentasAbiertas = await db_1.prisma.cuenta.findMany({ where: { estado: 'ABIERTA' } });
+        const dbUrl = process.env.DATABASE_URL || 'FALLBACK';
+        res.json({
+            dbUrlHost: dbUrl.split('@')[1] || dbUrl,
+            turnosActivosCount: turnos.length,
+            turnos,
+            cuentasAbiertasCount: cuentasAbiertas.length,
+            sampleAbiertas: cuentasAbiertas.slice(0, 5)
+        });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // ==========================================
 // HEALTH CHECK (Railway / producción)
 // ==========================================

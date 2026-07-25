@@ -860,12 +860,14 @@ export async function listarTodasLasCuentas(req: AuthenticatedRequest, res: Resp
 
       // Cuentas abiertas SIEMPRE deben ser visibles para cobro, más las del turno activo
       if (idsTurnosActivos.length > 0) {
-        whereClause.OR = [
-          { estado: 'ABIERTA' },
-          { turno_id: { in: idsTurnosActivos } },
-        ];
+        whereClause = {
+          OR: [
+            { estado: 'ABIERTA' },
+            { turno_id: { in: idsTurnosActivos } },
+          ],
+        };
       } else {
-        whereClause.estado = 'ABIERTA';
+        whereClause = { estado: 'ABIERTA' };
       }
     } else {
       // Sin filtro de turno: limitar a las 200 más recientes para no cargar toda la historia
