@@ -570,8 +570,10 @@ export default function AdminView() {
   const [editSocioEmail, setEditSocioEmail] = useState('');
   const [editSocioTelefono, setEditSocioTelefono] = useState('');
 
-  // Reportes
-  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'cortes_finales' | 'usuarios' | 'cclourdes' | 'backups' | 'socios'>('gestion');
+  // Reportes y Consultas
+  const [seccionActiva, setSeccionActiva] = useState<'gestion' | 'reportes' | 'cortes_finales' | 'usuarios' | 'cclourdes' | 'backups' | 'socios' | 'busqueda_producto'>('gestion');
+  const [busquedaProductoReporte, setBusquedaProductoReporte] = useState('');
+  const [prodExpandidoReporte, setProdExpandidoReporte] = useState<number | null>(null);
 
   // Reporte Semanal CCLourdes
   const [fechaSemanalGastos, setFechaSemanalGastos] = useState(() => {
@@ -1403,6 +1405,23 @@ export default function AdminView() {
           <button
             type="button"
             onClick={() => {
+              setSeccionActiva('busqueda_producto');
+              cargarReporteDiario(fechaReporte);
+            }}
+            className={`flex items-center gap-2 px-5 py-2.5 text-xs font-semibold rounded-xl transition-all ${
+              seccionActiva === 'busqueda_producto'
+                ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Package size={14} />
+            Ventas por Producto 📦
+          </button>
+        )}
+        {esAdmin && (
+          <button
+            type="button"
+            onClick={() => {
               setSeccionActiva('cortes_finales');
               cargarReporteCortes();
             }}
@@ -2122,6 +2141,216 @@ export default function AdminView() {
           </div>
         </div>
       </>
+      ) : seccionActiva === 'busqueda_producto' ? (
+        <div className="space-y-6">
+          <div className="glass-card rounded-3xl border border-slate-800 p-6 space-y-6">
+            <div className="flex flex-wrap justify-between items-center gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-extrabold flex items-center gap-2 text-white Outfit">
+                  <Package className="text-amber-400" size={22} />
+                  <span>Consulta de Cantidad Vendida por Producto</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Selecciona la fecha y busca cualquier producto para conocer exactamente cuántas unidades se vendieron ese día.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
+                  <Calendar size={14} className="text-amber-400" />
+                  <input
+                    type="date"
+                    value={fechaReporte}
+                    onChange={(e) => {
+                      setFechaReporte(e.target.value);
+                      cargarReporteDiario(e.target.value, rangoReporte);
+                    }}
+                    className="bg-transparent text-xs text-white outline-none font-bold"
+                  />
+                </div>
+                <select
+                  value={rangoReporte}
+                  onChange={(e) => {
+                    setRangoReporte(e.target.value);
+                    cargarReporteDiario(fechaReporte, e.target.value);
+                  }}
+                  className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-amber-400 font-bold cursor-pointer"
+                >
+                  <option value="diario">Diario 📅</option>
+                  <option value="semanal">Semanal 📅</option>
+                  <option value="mensual">Mensual 📅</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => cargarReporteDiario(fechaReporte, rangoReporte)}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-md shadow-amber-500/20"
+                >
+                  <RefreshCw size={12} className={cargandoReporte ? 'animate-spin' : ''} />
+                  Consultar
+                </button>
+              </div>
+            </div>
+
+            {/* Buscador de Producto */}
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-amber-400 pointer-events-none">
+                <Search size={16} />
+              </span>
+              <input
+                type="text"
+                placeholder="Escribe el nombre del producto (ej: Coca Cola, Agua Mineral, Cheeseburger, Boneless)..."
+                value={busquedaProductoReporte}
+                onChange={(e) => setBusquedaProductoReporte(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/60 font-medium transition-all"
+              />
+            </div>
+
+            {cargandoReporte ? (
+              <div className="text-center py-12 text-slate-400 animate-pulse space-y-2">
+                <RefreshCw size={24} className="animate-spin mx-auto text-amber-400" />
+                <p className="text-xs">Cargando ventas de productos...</p>
+              </div>
+            ) : !reporteDiario || !reporteDiario.productos_vendidos || reporteDiario.productos_vendidos.length === 0 ? (
+              <div className="bg-slate-950/40 border border-dashed border-slate-800 rounded-2xl p-8 text-center text-slate-400 space-y-2">
+                <Package size={32} className="mx-auto text-slate-600" />
+                <p className="text-sm font-semibold text-white">No hay registro de productos vendidos en esta fecha ({fechaReporte})</p>
+                <p className="text-xs text-slate-500">Intenta seleccionando otra fecha o verifica que existan cuentas cerradas/pagadas en ese día.</p>
+              </div>
+            ) : (() => {
+              const filtrados = (reporteDiario.productos_vendidos || []).filter((p: any) =>
+                !busquedaProductoReporte.trim() || p.nombre.toLowerCase().includes(busquedaProductoReporte.toLowerCase().trim())
+              );
+
+              const totalPiezasFiltradas = filtrados.reduce((acc: number, p: any) => acc + p.cantidad_total, 0);
+              const totalMontoFiltrado = filtrados.reduce((acc: number, p: any) => acc + p.monto_total, 0);
+
+              return (
+                <div className="space-y-4">
+                  {/* Tarjetas Informativas Generales */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">Productos Diferentes</span>
+                        <span className="text-2xl font-extrabold text-white mt-1 block">{filtrados.length}</span>
+                      </div>
+                      <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                        <Package size={22} />
+                      </div>
+                    </div>
+                    <div className="bg-slate-950/60 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-amber-300 uppercase tracking-wider font-bold block">📦 Total Unidades Vendidas</span>
+                        <span className="text-2xl font-extrabold text-amber-400 mt-1 block">{totalPiezasFiltradas} <span className="text-xs text-slate-400 font-normal">piezas</span></span>
+                      </div>
+                      <div className="p-3 bg-amber-500/20 text-amber-300 rounded-xl border border-amber-500/40">
+                        <ShoppingCart size={22} />
+                      </div>
+                    </div>
+                    <div className="bg-slate-950/60 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-emerald-300 uppercase tracking-wider font-bold block">💵 Recaudado por estos Productos</span>
+                        <span className="text-2xl font-extrabold text-emerald-400 mt-1 block">${totalMontoFiltrado.toFixed(2)}</span>
+                      </div>
+                      <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                        <DollarSign size={22} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Listado de Productos */}
+                  {filtrados.length === 0 ? (
+                    <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-6 text-center text-slate-400 text-xs">
+                      No se encontraron productos que coincidan con &quot;<b className="text-white">{busquedaProductoReporte}</b>&quot; en la fecha {fechaReporte}.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {filtrados.map((prod: any) => {
+                        const estaExpandido = prodExpandidoReporte === prod.producto_id;
+                        return (
+                          <div
+                            key={prod.producto_id}
+                            className="bg-slate-950/60 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-4 transition-all space-y-3"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 font-extrabold text-sm">
+                                  {prod.cantidad_total}x
+                                </div>
+                                <div>
+                                  <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 w-fit block mb-1">
+                                    {prod.categoria}
+                                  </span>
+                                  <h4 className="text-sm font-extrabold text-white">
+                                    {prod.nombre}
+                                  </h4>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-4 justify-between sm:justify-end border-t sm:border-t-0 border-slate-800 pt-2 sm:pt-0">
+                                <div className="text-right">
+                                  <span className="text-[10px] text-slate-400 block uppercase font-semibold">Total Ingreso</span>
+                                  <span className="text-base font-extrabold text-emerald-400 Outfit">
+                                    ${prod.monto_total.toFixed(2)}
+                                  </span>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setProdExpandidoReporte(estaExpandido ? null : prod.producto_id)}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border ${
+                                    estaExpandido
+                                      ? 'bg-amber-500 text-slate-950 border-amber-500'
+                                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white'
+                                  }`}
+                                >
+                                  <FileText size={12} />
+                                  {estaExpandido ? 'Ocultar Cuentas' : `Ver Cuentas (${prod.detalles.length})`}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Desglose de Cuentas / Tickets */}
+                            {estaExpandido && (
+                              <div className="border-t border-slate-800/80 pt-3 space-y-2">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                  📋 Detalle de Cuentas en las que se vendió:
+                                </span>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                  {prod.detalles.map((det: any, idx: number) => (
+                                    <div
+                                      key={idx}
+                                      className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs flex flex-col justify-between space-y-1"
+                                    >
+                                      <div className="flex justify-between items-start">
+                                        <span className="font-bold text-white truncate max-w-[120px]">
+                                          {det.referencia || `Cuenta #${det.cuenta_id}`}
+                                        </span>
+                                        <span className="text-[10px] text-amber-400 font-extrabold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                          {det.cantidad}x
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-800/60 pt-1">
+                                        <span>Área: <b className="text-slate-300">{det.area}</b></span>
+                                        <span>${det.subtotal.toFixed(2)}</span>
+                                      </div>
+                                      <div className="text-[9px] text-slate-500 flex justify-between items-center">
+                                        <span>Atendido por: {det.atendido_por}</span>
+                                        <span>{new Date(det.hora).toLocaleTimeString('es-MX', { timeStyle: 'short' })}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
       ) : seccionActiva === 'reportes' ? (
         <div className="space-y-6">
           {/* Ventas Diarias */}

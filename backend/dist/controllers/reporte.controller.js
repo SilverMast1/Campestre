@@ -182,8 +182,37 @@ async function obtenerReporteDiario(req, res) {
                 liquidadoTransferencia = liquidadoTransferencia.plus(montoDec);
             }
         });
-        // Ventas Netas = suma real de todos los métodos de pago (lo que realmente entró/se cargó)
-        totalVentas = efectivo.plus(tarjeta).plus(transferencia).plus(cargos);
+        // Agrupar cantidad vendida por producto en el período
+        const productosMap = {};
+        cuentas.forEach(c => {
+            c.detalleCuentas.forEach(det => {
+                const pid = det.producto_id;
+                const cant = Number(det.cantidad);
+                const sub = Number(det.cantidad) * Number(det.precio_unitario);
+                if (!productosMap[pid]) {
+                    productosMap[pid] = {
+                        producto_id: pid,
+                        nombre: det.producto.nombre,
+                        categoria: det.producto.categoria || 'Sin categoría',
+                        cantidad_total: 0,
+                        monto_total: 0,
+                        detalles: [],
+                    };
+                }
+                productosMap[pid].cantidad_total += cant;
+                productosMap[pid].monto_total += sub;
+                productosMap[pid].detalles.push({
+                    cuenta_id: c.id,
+                    referencia: c.referencia,
+                    area: c.area.nombre,
+                    atendido_por: c.usuario.nombre,
+                    cantidad: cant,
+                    subtotal: sub,
+                    hora: c.closed_at,
+                });
+            });
+        });
+        const productosVendidos = Object.values(productosMap).sort((a, b) => b.cantidad_total - a.cantidad_total);
         return res.json({
             fecha: fechaStr,
             rango,
@@ -203,6 +232,7 @@ async function obtenerReporteDiario(req, res) {
                 liquidado_transferencia: liquidadoTransferencia.toNumber(),
             },
             ventas,
+            productos_vendidos: productosVendidos,
             cargos_liquidados: divisionesPagadasHoy.map(div => ({
                 id: div.id,
                 socio: div.cliente.nombre,
