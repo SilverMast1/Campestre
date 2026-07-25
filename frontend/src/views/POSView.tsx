@@ -3939,7 +3939,7 @@ export default function POSView() {
               </span>
               <input
                 type="text"
-                placeholder="Buscar producto para Prep ($0)..."
+                placeholder="Buscar refresco o agua mineral..."
                 value={busquedaPrep}
                 onChange={(e) => setBusquedaPrep(e.target.value)}
                 className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
@@ -3948,7 +3948,43 @@ export default function POSView() {
 
             <div className="overflow-y-auto max-h-[420px] grid grid-cols-2 sm:grid-cols-3 gap-3 pr-1 scrollbar-thin scrollbar-thumb-slate-800">
               {productos
-                .filter(p => p.nombre.toLowerCase().includes(busquedaPrep.toLowerCase().trim()))
+                .filter(p => {
+                  const nom = (p.nombre || '').toLowerCase().trim();
+                  const cat = (p.categoria || '').toLowerCase().trim();
+                  
+                  // Solo refrescos, aguas minerales/naturales y mezcladores no alcohólicos
+                  const esBebidaNoAlcoholica = 
+                    cat === 'bebidas' || 
+                    cat === 'bebida' || 
+                    nom.includes('agua') || 
+                    nom.includes('mineral') || 
+                    nom.includes('refresco') || 
+                    nom.includes('coca') || 
+                    nom.includes('sprite') || 
+                    nom.includes('fanta') || 
+                    nom.includes('squirt') || 
+                    nom.includes('boing') || 
+                    nom.includes('topochico') || 
+                    nom.includes('tonic');
+                  
+                  const esAlcoholOComida = 
+                    nom.includes('cerveza') || 
+                    nom.includes('tequila') || 
+                    nom.includes('whisky') || 
+                    nom.includes('vodka') || 
+                    nom.includes('ron') || 
+                    nom.includes('brandy') || 
+                    cat.includes('cerveza') || 
+                    cat.includes('tequila') || 
+                    cat.includes('whisky') ||
+                    cat.includes('comida') ||
+                    cat.includes('cenas') ||
+                    cat.includes('desayunos');
+
+                  const coincideBusqueda = !busquedaPrep.trim() || nom.includes(busquedaPrep.toLowerCase().trim());
+
+                  return esBebidaNoAlcoholica && !esAlcoholOComida && coincideBusqueda;
+                })
                 .map(prod => (
                   <button
                     key={prod.id}
