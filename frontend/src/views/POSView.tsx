@@ -9,17 +9,13 @@ import { addToOfflineQueue, syncOfflineQueue, getOfflineQueue } from '../api/off
 // Wrapper de fetch compatible usando Axios
 const apiFetch = async (url: string, options: any = {}) => {
   const method = options.method || 'GET';
-  const headers = options.headers || {};
+  const headers = { ...(options.headers || {}) };
   let data = options.body;
   if (data && typeof data === 'string') {
     try {
       data = JSON.parse(data);
     } catch (e) {}
   }
-
-  // Limpiar headers redundantes
-  if (headers['Authorization']) delete headers['Authorization'];
-  if (headers['Content-Type']) delete headers['Content-Type'];
 
   const response = await apiClient({
     url,

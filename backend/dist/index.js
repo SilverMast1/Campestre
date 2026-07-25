@@ -47,8 +47,10 @@ const isOriginAllowed = (origin) => {
             hostname.startsWith('10.') ||
             hostname.startsWith('172.'))
             return true;
-        // Permitir túneles de VS Code o localtunnel
-        if (hostname.endsWith('.github.dev') ||
+        // Permitir túneles de VS Code, localtunnel y dominios de Firebase
+        if (hostname.endsWith('.web.app') ||
+            hostname.endsWith('.firebaseapp.com') ||
+            hostname.endsWith('.github.dev') ||
             hostname.endsWith('.app.github.dev') ||
             hostname.endsWith('.devtunnels.ms') ||
             hostname.endsWith('.loca.lt') ||
