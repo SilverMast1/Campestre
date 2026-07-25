@@ -3950,40 +3950,15 @@ export default function POSView() {
               {productos
                 .filter(p => {
                   const nom = (p.nombre || '').toLowerCase().trim();
-                  const cat = (p.categoria || '').toLowerCase().trim();
                   
-                  // Solo refrescos, aguas minerales/naturales y mezcladores no alcohólicos
-                  const esBebidaNoAlcoholica = 
-                    cat === 'bebidas' || 
-                    cat === 'bebida' || 
-                    nom.includes('agua') || 
-                    nom.includes('mineral') || 
-                    nom.includes('refresco') || 
-                    nom.includes('coca') || 
-                    nom.includes('sprite') || 
-                    nom.includes('fanta') || 
-                    nom.includes('squirt') || 
-                    nom.includes('boing') || 
-                    nom.includes('topochico') || 
-                    nom.includes('tonic');
-                  
-                  const esAlcoholOComida = 
-                    nom.includes('cerveza') || 
-                    nom.includes('tequila') || 
-                    nom.includes('whisky') || 
-                    nom.includes('vodka') || 
-                    nom.includes('ron') || 
-                    nom.includes('brandy') || 
-                    cat.includes('cerveza') || 
-                    cat.includes('tequila') || 
-                    cat.includes('whisky') ||
-                    cat.includes('comida') ||
-                    cat.includes('cenas') ||
-                    cat.includes('desayunos');
+                  // EXCLUSIVAMENTE Refresco, Agua Mineral y Agua Mineral Grande
+                  const esPrepExclusivo = 
+                    nom.includes('refresco') ||
+                    nom.includes('agua mineral');
 
                   const coincideBusqueda = !busquedaPrep.trim() || nom.includes(busquedaPrep.toLowerCase().trim());
 
-                  return esBebidaNoAlcoholica && !esAlcoholOComida && coincideBusqueda;
+                  return esPrepExclusivo && coincideBusqueda;
                 })
                 .map(prod => (
                   <button
