@@ -203,12 +203,12 @@ async function obtenerReporteDiario(req, res) {
                 productosMap[pid].monto_total += sub;
                 productosMap[pid].detalles.push({
                     cuenta_id: c.id,
-                    referencia: c.referencia,
+                    referencia: c.nombre_referencia || `Cuenta #${c.id}`,
                     area: c.area.nombre,
                     atendido_por: c.usuario.nombre,
                     cantidad: cant,
                     subtotal: sub,
-                    hora: c.closed_at,
+                    hora: c.closed_at || c.created_at,
                 });
             });
         });
