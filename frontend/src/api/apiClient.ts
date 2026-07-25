@@ -1,13 +1,8 @@
 import axios from 'axios';
-
-const getBaseUrl = () => {
-  const envUrl = (import.meta as any).env?.VITE_API_URL;
-  if (envUrl) return envUrl;
-  return '';
-};
+import { getApiUrl } from '../utils/apiUrl';
 
 const apiClient = axios.create({
-  baseURL: getBaseUrl(),
+  baseURL: getApiUrl(''),
   timeout: 25000, // 25s para tolerar latencia del túnel
   headers: {
     'Content-Type': 'application/json',

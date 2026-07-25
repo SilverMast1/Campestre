@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { Package, Users, AlertTriangle, Check, RefreshCw, Trash2, Receipt, RotateCcw, Tag, Plus, Clock, DollarSign, CreditCard, Banknote, X, Briefcase, TrendingUp, Calendar, Search, FileText, Smartphone, ShoppingCart } from 'lucide-react';
+import { getApiUrl } from '../utils/apiUrl';
 
 interface GraficaMetodosPagoProps {
   efectivo: number;
@@ -647,7 +648,7 @@ export default function AdminView() {
   const cargarBackups = async () => {
     setCargandoBackups(true);
     try {
-      const res = await fetch('/api/admin/backups', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl('/api/admin/backups', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setBackupsLista(data);
     } catch (err) {
@@ -661,7 +662,7 @@ export default function AdminView() {
     setError(''); setSuccess('');
     setCargandoBackups(true);
     try {
-      const res = await fetch('/api/admin/backups/crear', {
+      const res = await fetch(getApiUrl('/api/admin/backups/crear', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -683,7 +684,7 @@ export default function AdminView() {
     setError(''); setSuccess('');
     setCargandoBackups(true);
     try {
-      const res = await fetch('/api/admin/backups/restaurar', {
+      const res = await fetch(getApiUrl('/api/admin/backups/restaurar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -707,7 +708,7 @@ export default function AdminView() {
   const cargarUsuariosLista = async () => {
     setCargandoUsuarios(true);
     try {
-      const res = await fetch('/api/admin/usuarios', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl('/api/admin/usuarios', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setUsuariosLista(data);
     } catch (err) {
@@ -725,7 +726,7 @@ export default function AdminView() {
       return;
     }
     try {
-      const res = await fetch('/api/admin/usuarios', {
+      const res = await fetch(getApiUrl('/api/admin/usuarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ username: nuUsername, password: nuPassword, nombre: nuNombre, email: nuEmail || undefined, role: nuRole }),
@@ -824,7 +825,7 @@ export default function AdminView() {
 
   const cargarSociosLista = async () => {
     try {
-      const res = await fetch('/api/socios', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl('/api/socios', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setSociosLista(data);
     } catch (err) { console.error(err); }
@@ -853,7 +854,7 @@ export default function AdminView() {
   const cargarReporteCortes = async () => {
     setCargandoReporte(true);
     try {
-      const res = await fetch('/api/admin/reportes/cortes', {
+      const res = await fetch(getApiUrl('/api/admin/reportes/cortes', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -898,7 +899,7 @@ export default function AdminView() {
       return;
     }
     try {
-      const res = await fetch('/api/admin/gastos-ingresos', {
+      const res = await fetch(getApiUrl('/api/admin/gastos-ingresos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -968,7 +969,7 @@ export default function AdminView() {
 
   const cargarCadis = async () => {
     try {
-      const res = await fetch('/api/cadis', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl('/api/cadis', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setCadis(data);
     } catch (err) { console.error(err); }
@@ -976,7 +977,7 @@ export default function AdminView() {
 
   const cargarSocios = async () => {
     try {
-      const res = await fetch('/api/socios', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl('/api/socios', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setSocios(data);
     } catch (err) { console.error(err); }
@@ -993,7 +994,7 @@ export default function AdminView() {
   const cargarCuentas = async () => {
     setCargandoCuentas(true);
     try {
-      const res = await fetch('/api/admin/cuentas', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl('/api/admin/cuentas', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setCuentas(data);
     } catch (err) { console.error(err); }
@@ -1030,7 +1031,7 @@ export default function AdminView() {
     const fondo = parseFloat(fondoInicial);
     if (isNaN(fondo) || fondo < 0) { setError('El fondo inicial debe ser un número positivo'); setCargandoTurno(false); return; }
     try {
-      const res = await fetch('/api/admin/turno/abrir', {
+      const res = await fetch(getApiUrl('/api/admin/turno/abrir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ fondo_inicial: fondo, area_id: areaTurnoAdmin }),
@@ -1046,7 +1047,7 @@ export default function AdminView() {
   const handleCerrarTurno = async () => {
     setError(''); setSuccess(''); setCargandoTurno(true); setMostrarConfirmCierre(false);
     try {
-      const res = await fetch('/api/admin/turno/cerrar', {
+      const res = await fetch(getApiUrl('/api/admin/turno/cerrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ area_id: areaTurnoAdmin }),
@@ -1076,7 +1077,7 @@ export default function AdminView() {
       return;
     }
     try {
-      const res = await fetch('/api/admin/turno/retiro', {
+      const res = await fetch(getApiUrl('/api/admin/turno/retiro', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ monto, motivo: motivoRetiro, area_id: areaTurnoAdmin }),
@@ -1111,7 +1112,7 @@ export default function AdminView() {
       return;
     }
     try {
-      const res = await fetch('/api/admin/turno/ingreso', {
+      const res = await fetch(getApiUrl('/api/admin/turno/ingreso', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ monto, motivo: motivoIngreso, area_id: areaTurnoAdmin }),
@@ -1135,7 +1136,7 @@ export default function AdminView() {
     e.preventDefault();
     setError(''); setSuccess(''); setCargando(true);
     try {
-      const res = await fetch('/api/admin/inventario', {
+      const res = await fetch(getApiUrl('/api/admin/inventario', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ 
@@ -1165,7 +1166,7 @@ export default function AdminView() {
     setError(''); setSuccess(''); setCargando(true);
     if (!codigoSocioNuevo || !nombreSocioNuevo) { setError('Código y nombre requeridos'); setCargando(false); return; }
     try {
-      const res = await fetch('/api/pos/clientes', {
+      const res = await fetch(getApiUrl('/api/pos/clientes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ codigo_socio: codigoSocioNuevo, nombre: nombreSocioNuevo, email: emailSocioNuevo || undefined, telefono: telefonoSocioNuevo || undefined }),
@@ -1185,7 +1186,7 @@ export default function AdminView() {
     setError(''); setSuccess('');
     if (!numeroCadi || !nombreCadi) { setError('Número y nombre requeridos'); return; }
     try {
-      const res = await fetch('/api/cadis', {
+      const res = await fetch(getApiUrl('/api/cadis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ numero_cadi: numeroCadi, nombre: nombreCadi, telefono: telefonoCadi || undefined }),
@@ -1203,7 +1204,7 @@ export default function AdminView() {
     setError(''); setSuccess('');
     if (!cadiSeleccionadoRonda || sociosSeleccionadosRonda.length === 0) { setError('Debes seleccionar un Cadi y al menos un Socio'); return; }
     try {
-      const res = await fetch('/api/cadis/asignar', {
+      const res = await fetch(getApiUrl('/api/cadis/asignar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ cadi_id: cadiSeleccionadoRonda, cliente_ids: sociosSeleccionadosRonda }),
@@ -1301,7 +1302,7 @@ export default function AdminView() {
   const handleResetearDatos = async () => {
     setError(''); setMostrarConfirmReset(false);
     try {
-      const res = await fetch('/api/admin/reset', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl('/api/admin/reset', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al resetear');
       setSuccess('Datos reseteados. Todas las cuentas y asignaciones eliminadas.');
@@ -1312,7 +1313,7 @@ export default function AdminView() {
   const handleCrearProducto = async (e: React.FormEvent) => {    e.preventDefault();
     setError(''); setSuccess(''); setCargando(true);
     try {
-      const res = await fetch('/api/admin/productos', {
+      const res = await fetch(getApiUrl('/api/admin/productos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({

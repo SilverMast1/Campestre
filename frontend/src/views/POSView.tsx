@@ -546,7 +546,7 @@ export default function POSView() {
       return;
     }
     try {
-      const res = await fetch('/api/cadis/activos', {
+      const res = await apiFetch('/api/cadis/activos', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -570,7 +570,7 @@ export default function POSView() {
       return;
     }
     try {
-      const res = await fetch('/api/cadis', {
+      const res = await apiFetch('/api/cadis', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -612,7 +612,7 @@ export default function POSView() {
     }
     setCargando(true);
     try {
-      const res = await fetch('/api/pos/clientes', {
+      const res = await apiFetch('/api/pos/clientes', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -661,7 +661,7 @@ export default function POSView() {
     }
     setCargando(true);
     try {
-      const res = await fetch('/api/cadis', {
+      const res = await apiFetch('/api/cadis', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -703,7 +703,7 @@ export default function POSView() {
     }
     setCargando(true);
     try {
-      const res = await fetch('/api/cadis/asignar', {
+      const res = await apiFetch('/api/cadis/asignar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -752,7 +752,7 @@ export default function POSView() {
       return;
     }
     try {
-      const res = await fetch('/api/admin/cuentas?solo_turno_activo=true', {
+      const res = await apiFetch('/api/admin/cuentas?solo_turno_activo=true', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -774,7 +774,7 @@ export default function POSView() {
     if (!token) return;
     setCargandoPagadas(true);
     try {
-      const res = await fetch('/api/admin/turno/activo?area_id=' + areaId, {
+      const res = await apiFetch('/api/admin/turno/activo?area_id=' + areaId, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -810,7 +810,7 @@ export default function POSView() {
       return;
     }
     try {
-      const res = await fetch('/api/admin/turno/abrir', {
+      const res = await apiFetch('/api/admin/turno/abrir', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -950,7 +950,7 @@ export default function POSView() {
     setCargando(true);
     setErrorMsg('');
     try {
-      const res = await fetch('/api/admin/cuentas', {
+      const res = await apiFetch('/api/admin/cuentas', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -1165,7 +1165,7 @@ export default function POSView() {
       setNombreReferencia(refName);
 
       if (!idCuenta) {
-        const resCuenta = await fetch('/api/pos/cuentas/abrir', {
+        const resCuenta = await apiFetch('/api/pos/cuentas/abrir', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1350,7 +1350,7 @@ export default function POSView() {
     setErrorMsg('');
 
     try {
-      const res = await fetch('/api/socio/buscar-qr', {
+      const res = await apiFetch('/api/socio/buscar-qr', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1387,7 +1387,7 @@ export default function POSView() {
     setErrorMsg('');
     
     try {
-      const res = await fetch('/api/pos/cuentas/fusionar', {
+      const res = await apiFetch('/api/pos/cuentas/fusionar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1475,7 +1475,7 @@ export default function POSView() {
       setNombreReferencia(refName);
 
       if (!idCuenta) {
-        const resCuenta = await fetch('/api/pos/cuentas/abrir', {
+        const resCuenta = await apiFetch('/api/pos/cuentas/abrir', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
