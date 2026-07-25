@@ -828,13 +828,19 @@ async function listarTodasLasCuentas(req, res) {
         if (solo_turno_activo === 'true') {
             const turnosActivos = await db_1.default.turno.findMany({
                 where: { activo: true },
-                select: { id: true, abierto_at: true },
+                select: { id: true },
             });
-            const turnosValidos = turnosActivos.filter(t => esMismoDia(new Date(), new Date(t.abierto_at)));
-            if (turnosValidos.length === 0) {
-                return res.json([]);
+            const idsTurnosActivos = turnosActivos.map(t => t.id);
+            // Cuentas abiertas SIEMPRE deben ser visibles para cobro, más las del turno activo
+            if (idsTurnosActivos.length > 0) {
+                whereClause.OR = [
+                    { estado: 'ABIERTA' },
+                    { turno_id: { in: idsTurnosActivos } },
+                ];
             }
-            whereClause.turno_id = { in: turnosValidos.map(t => t.id) };
+            else {
+                whereClause.estado = 'ABIERTA';
+            }
         }
         else {
             // Sin filtro de turno: limitar a las 200 más recientes para no cargar toda la historia
